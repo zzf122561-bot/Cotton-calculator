@@ -2,6 +2,8 @@
 
 一个完全离线的原生 Android 计算器，用于在籽棉收购价与皮棉最终入库成本之间双向换算。支持手摘棉、机采棉两套独立参数，并记住各自最后一次输入和计算方向。
 
+项目级分工与发版规则见 [PROJECT.md](./PROJECT.md) 和 [AGENTS.md](./AGENTS.md)。本文件只说明 Android 功能；历史验收记录已移至 [_manager/releases/android/VERIFICATION.md](./_manager/releases/android/VERIFICATION.md)。测试包、正式 APK、版本号和 GitHub 推送由管理员负责。
+
 ## 使用方法
 
 1. 在顶部选择“手摘棉”或“机采棉”。

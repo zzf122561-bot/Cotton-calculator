@@ -47,20 +47,11 @@ node --test
 
 不要直接双击 `index.html`：浏览器会限制 `file://` 下的 JavaScript 模块与 Service Worker。iOS/iPadOS 和其他手机端保留现状，但不再维护或验收。
 
-## 当前交付包
+## 交付与历史
 
-- 历史手机端包：`deliverables/current/cottoncal-mobile-v1.1.0.zip`，仅保留 v1.1.0 归档价值，不再更新或提供 iOS 支持。
-- 服务器代理交接包：`deliverables/current/cottoncal-server-handoff-v1.1.0.zip`。包含部署说明、验收清单、Nginx 示例、配置描述文件模板和逐文件 SHA-256。
-- 当前包校验值与版本说明：`deliverables/current/CHECKSUMS.sha256`、`deliverables/current/VERSION.md`。
-- 历史归档：`deliverables/archive/`；旧 ZIP 使用时间戳文件名平铺保存，说明集中在根部 `VERSIONS.md`，不建立日期子文件夹。
+网页功能会话只开发电脑端代码并做技术测试，不制作或交付 ZIP。管理员在项目根目录的 _manager/ 保存所有历史包、版本清单与服务器交接模板，并使用 _manager/scripts/build-desktop-web.ps1 制作新的电脑端交接包。旧 v1.1.0 手机包已迁至 _manager/releases/web/v1.1.0/ 作历史留档，不再生成新的网页手机包。原双包脚本也仅在 _manager/legacy/web/ 留作追溯，禁止作为新版本入口。
 
-后续更新运行：
-
-```powershell
-pwsh.exe -NoLogo -NoProfile -NonInteractive -File .\scripts\build-deliverables.ps1
-```
-
-该脚本是 v1.1.0 时期的历史交付脚本；后续电脑端版本发布时应先调整其产物名称与内容，不再生成手机端或 Web Clip 交付物。它不会连接或修改服务器。
+版本与目录详见 [管理员发版索引](../_manager/RELEASES.md)。新包仅包含电脑端静态网页和服务器交接材料，不连接或修改服务器。
 
 ## 验收边界
 
@@ -71,4 +62,4 @@ pwsh.exe -NoLogo -NoProfile -NonInteractive -File .\scripts\build-deliverables.p
 - `mailto:`、联系作者弹层及二维码显示；
 - 本地服务器启动、在线部署和离线缓存更新。
 
-本次实际执行记录见 [VERIFICATION.md](./VERIFICATION.md)。
+旧 v1.1.0 的实际检查记录见 [历史验证记录](../_manager/releases/web/VERIFICATION.md)。后续自动测试、浏览器检查与用户验收分别由管理员登记。

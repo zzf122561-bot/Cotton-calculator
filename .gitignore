@@ -18,3 +18,9 @@ web/deliverables/current/
 web/deliverables/archive/*.zip
 web/screenshots/
 web/.delivery-staging-*/
+_manager/releases/**/*.apk
+_manager/releases/**/*.aab
+_manager/releases/**/*.zip
+_manager/releases/**/screenshots/
+_manager/.staging/
+_manager/.worktrees/

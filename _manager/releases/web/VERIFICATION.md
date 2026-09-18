@@ -22,9 +22,9 @@
 
 关键截图：
 
-- `screenshots/v1.1.0-mobile-silver.jpg`
-- `screenshots/v1.1.0-mobile-guide.jpg`
-- `assets/guide/step-1-preset.png` 至 `step-4-inquiry.png`
+- `v1.1.0/screenshots/v1.1.0-mobile-silver.jpg`
+- `v1.1.0/screenshots/v1.1.0-mobile-guide.jpg`
+- `../../../web/assets/guide/step-1-preset.png` 至 `step-4-inquiry.png`
 
 ## 交付包与归档
 
