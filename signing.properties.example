@@ -1,0 +1,6 @@
+# 复制为 signing.properties 后填写。真实文件和密钥均不得提交到版本库。
+storeFile=private-signing/cottoncal-release.jks
+storePassword=替换为密钥库密码
+keyAlias=cottoncal
+keyPassword=替换为密钥密码
+

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>PayloadContent</key>
+  <array>
+    <dict>
+      <key>FullScreen</key><true/>
+      <key>IsRemovable</key><true/>
+      <key>Label</key><string>皮棉换算</string>
+      <key>PayloadDescription</key><string>打开皮棉成本换算</string>
+      <key>PayloadDisplayName</key><string>皮棉换算桌面图标</string>
+      <key>PayloadIdentifier</key><string>xin.xuesui.cottoncal.webclip</string>
+      <key>PayloadType</key><string>com.apple.webClip.managed</string>
+      <key>PayloadUUID</key><string>0A3164B3-31D8-4779-9BDA-28AD654B4308</string>
+      <key>PayloadVersion</key><integer>1</integer>
+      <key>Precomposed</key><true/>
+      <key>URL</key><string>__PUBLIC_URL__</string>
+    </dict>
+  </array>
+  <key>PayloadDescription</key><string>在主屏幕添加皮棉成本换算入口</string>
+  <key>PayloadDisplayName</key><string>皮棉成本换算</string>
+  <key>PayloadIdentifier</key><string>xin.xuesui.cottoncal.profile</string>
+  <key>PayloadOrganization</key><string>厦门建发</string>
+  <key>PayloadRemovalDisallowed</key><false/>
+  <key>PayloadType</key><string>Configuration</string>
+  <key>PayloadUUID</key><string>92F49016-F23C-4E0C-B7B5-7FD554AEE225</string>
+  <key>PayloadVersion</key><integer>1</integer>
+</dict>
+</plist>

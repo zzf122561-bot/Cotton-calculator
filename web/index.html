@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f3">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e0f10">
+  <meta name="color-scheme" content="light dark">
+  <meta name="description" content="完全离线的籽棉价格与皮棉入库成本双向换算工具">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="皮棉换算">
+  <title>皮棉成本换算</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <link rel="icon" href="./icons/icon-192.png" sizes="192x192" type="image/png">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./js/app.js"></script>
+</head>
+<body>
+  <main class="app-shell">
+    <header class="app-header">
+      <div class="brand-mark" aria-hidden="true">
+        <img src="./assets/cotton-boll.png" alt="">
+      </div>
+      <div class="title-stack">
+        <h1>皮棉成本换算</h1>
+      </div>
+      <div class="header-actions">
+        <button class="plain-button" id="guide-button" type="button">使用说明</button>
+        <button class="plain-button" id="theme-button" type="button">主题</button>
+        <button class="plain-button contact-button" id="contact-button" type="button">联系作者</button>
+      </div>
+    </header>
+
+    <nav class="segmented-control" aria-label="选择棉种">
+      <button type="button" data-preset="hand" aria-pressed="true">手摘棉</button>
+      <button type="button" data-preset="machine" aria-pressed="false">机采棉</button>
+    </nav>
+
+    <div class="content-grid">
+      <section class="primary-column" aria-label="换算输入">
+        <article class="card price-card">
+          <div class="section-heading">
+            <div>
+              <h2>价格桥</h2>
+              <p>最后实际修改的一侧作为计算依据</p>
+            </div>
+            <div class="fiber-mark" aria-hidden="true"><i></i><i></i><i></i></div>
+          </div>
+
+          <div class="price-bridge">
+            <label class="price-field" data-field-wrap="seedCottonPrice">
+              <span class="basis-pill" data-basis-for="seed">计算依据</span>
+              <span class="input-shell">
+                <span class="field-label">籽棉价</span>
+                <span class="value-row">
+                  <input id="seedCottonPrice" data-field="seedCottonPrice" inputmode="decimal" autocomplete="off" spellcheck="false" aria-describedby="seedCottonPrice-error">
+                  <span class="unit">元/kg</span>
+                </span>
+              </span>
+              <small class="field-error" id="seedCottonPrice-error"></small>
+            </label>
+
+            <div class="bridge-symbol" aria-hidden="true">
+              <span>⇄</span><small>自动</small>
+            </div>
+
+            <label class="price-field" data-field-wrap="lintPrice">
+              <span class="basis-pill lint" data-basis-for="lint">自动换算</span>
+              <span class="input-shell">
+                <span class="field-label">皮棉价</span>
+                <span class="value-row">
+                  <input id="lintPrice" data-field="lintPrice" inputmode="numeric" autocomplete="off" spellcheck="false" aria-describedby="lintPrice-error">
+                  <span class="unit">元/吨</span>
+                </span>
+              </span>
+              <small class="field-error" id="lintPrice-error"></small>
+            </label>
+          </div>
+          <p class="card-error" id="card-error" role="alert" aria-live="polite"></p>
+        </article>
+
+        <article class="card parameter-card">
+          <h2>计算参数</h2>
+          <div class="parameter-grid">
+            <label class="compact-field" data-field-wrap="lintPercentage">
+              <span>衣分率</span><span class="compact-input"><input id="lintPercentage" data-field="lintPercentage" inputmode="decimal" autocomplete="off"><b>%</b></span>
+              <small class="field-error" id="lintPercentage-error"></small>
+            </label>
+            <label class="compact-field" data-field-wrap="lossPercentage">
+              <span>损耗率</span><span class="compact-input"><input id="lossPercentage" data-field="lossPercentage" inputmode="decimal" autocomplete="off"><b>%</b></span>
+              <small class="field-error" id="lossPercentage-error"></small>
+            </label>
+            <label class="compact-field" data-field-wrap="cottonseedPrice">
+              <span>棉籽价格</span><span class="compact-input"><input id="cottonseedPrice" data-field="cottonseedPrice" inputmode="decimal" autocomplete="off"><b>元/kg</b></span>
+              <small class="field-error" id="cottonseedPrice-error"></small>
+            </label>
+            <label class="compact-field" data-field-wrap="processingFee">
+              <span>加工费</span><span class="compact-input"><input id="processingFee" data-field="processingFee" inputmode="decimal" autocomplete="off"><b>元/吨</b></span>
+              <small class="field-error" id="processingFee-error"></small>
+            </label>
+            <label class="compact-field" data-field-wrap="laborFee">
+              <span>人工费</span><span class="compact-input"><input id="laborFee" data-field="laborFee" inputmode="decimal" autocomplete="off"><b>元/吨</b></span>
+              <small class="field-error" id="laborFee-error"></small>
+            </label>
+            <label class="compact-field" data-field-wrap="warehouseFee">
+              <span>入库费</span><span class="compact-input"><input id="warehouseFee" data-field="warehouseFee" inputmode="decimal" autocomplete="off"><b>元/吨</b></span>
+              <small class="field-error" id="warehouseFee-error"></small>
+            </label>
+            <label class="compact-field" data-field-wrap="financeFee">
+              <span>财务费</span><span class="compact-input"><input id="financeFee" data-field="financeFee" inputmode="decimal" autocomplete="off"><b>元/吨</b></span>
+              <small class="field-error" id="financeFee-error"></small>
+            </label>
+            <label class="compact-field" data-field-wrap="subsidy">
+              <span>补贴（冲减）</span><span class="compact-input"><input id="subsidy" data-field="subsidy" inputmode="decimal" autocomplete="off"><b>元/吨</b></span>
+              <small class="field-error" id="subsidy-error"></small>
+            </label>
+          </div>
+        </article>
+      </section>
+
+      <aside class="secondary-column">
+        <section class="detail-card">
+          <button class="detail-toggle" id="detail-toggle" type="button" aria-expanded="false" aria-controls="detail-body">
+            <span><strong>计算明细</strong><small id="detail-caption">查看成本如何形成</small></span>
+            <b id="detail-action">展开 ↓</b>
+          </button>
+          <div class="detail-body" id="detail-body" hidden>
+            <dl>
+              <div><dt>棉籽产出率</dt><dd data-result="cottonseedYield"></dd></div>
+              <div><dt>棉籽抵扣</dt><dd><span data-result="cottonseedDeductionPerKg"></span> 元/kg</dd></div>
+              <div><dt>扣除棉籽后的籽棉成本</dt><dd><span data-result="netSeedCostPerKg"></span> 元/kg</dd></div>
+              <div><dt>皮棉原料成本</dt><dd><span data-result="rawLintCostPerTon"></span> 元/吨</dd></div>
+              <div><dt>费用净额</dt><dd><span data-result="netFeesPerTon"></span> 元/吨</dd></div>
+              <div class="total"><dt>最终入库成本</dt><dd><span data-result="lintPrice"></span> 元/吨</dd></div>
+            </dl>
+          </div>
+        </section>
+
+        <section class="lead-card" aria-labelledby="lead-title">
+          <span class="lead-eyebrow">采购沟通</span>
+          <h2 id="lead-title">有计划，带着测算聊</h2>
+          <p>有采购需求或现货资源，把数量、质量指标、交货地和账期一起带上，沟通会快很多。</p>
+          <div class="lead-actions">
+            <button id="copy-inquiry" type="button">复制测算摘要</button>
+            <a id="email-inquiry" href="mailto:zzf8640283@126.com">发邮件询价</a>
+          </div>
+          <small id="copy-status" role="status" aria-live="polite"></small>
+        </section>
+
+        <button class="reset-button" id="reset-button" type="button">恢复手摘棉默认值</button>
+      </aside>
+    </div>
+  </main>
+
+  <dialog class="sheet-dialog" id="reset-dialog" aria-labelledby="reset-title">
+    <form method="dialog">
+      <h2 id="reset-title">恢复默认参数？</h2>
+      <p id="reset-message"></p>
+      <div class="dialog-actions">
+        <button value="cancel" class="dialog-button" type="submit">取消</button>
+        <button value="confirm" class="dialog-button destructive" type="submit">恢复默认值</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog class="sheet-dialog guide-dialog" id="guide-dialog" aria-labelledby="guide-title">
+    <div class="guide-content">
+      <div class="dialog-title-row">
+        <div><small>看一遍就会</small><h2 id="guide-title">使用说明</h2></div>
+        <button class="close-button" id="guide-close" type="button" aria-label="关闭使用说明">×</button>
+      </div>
+      <p class="guide-intro">第一次用，按下面四步走，基本不会算错。</p>
+      <ol class="guide-steps">
+        <li>
+          <div class="guide-copy"><b>先选对棉种</b><p>手摘棉、机采棉的默认参数不一样。切换时各算各的，不会串值。</p></div>
+          <figure class="annotated-shot shot-preset">
+            <img src="./assets/guide/step-1-preset.png" alt="棉种选择区域示例">
+            <span class="shot-outline"></span><span class="shot-note">① 先选棉种</span>
+          </figure>
+        </li>
+        <li>
+          <div class="guide-copy"><b>你改哪边，就按哪边算</b><p>谈籽棉收购价就改左边；拿到皮棉目标价就改右边。光点进去，不会改变方向。</p></div>
+          <figure class="annotated-shot shot-price">
+            <img src="./assets/guide/step-2-price.png" alt="籽棉价和皮棉价双向换算示例">
+            <span class="shot-outline left"></span><span class="shot-outline right"></span>
+            <span class="shot-note left">改这里<br>算皮棉</span><span class="shot-note right">改这里<br>反算籽棉</span>
+          </figure>
+        </li>
+        <li>
+          <div class="guide-copy"><b>看不准的参数，先用默认值</b><p>衣分率、损耗率最影响结果；加工费、入库费等按你的真实业务填。出现红字就照提示改。</p></div>
+          <figure class="annotated-shot shot-detail">
+            <img src="./assets/guide/step-3-details.png" alt="计算参数和明细区域示例">
+            <span class="shot-outline"></span><span class="shot-note">衣分率、损耗率先核准</span>
+          </figure>
+        </li>
+        <li>
+          <div class="guide-copy"><b>有采购计划，就把摘要带上</b><p>点“复制测算摘要”，再补上数量、指标、交货地和账期，直接发我，聊起来快很多。</p></div>
+          <figure class="annotated-shot shot-inquiry">
+            <img src="./assets/guide/step-4-inquiry.png" alt="采购沟通入口示例">
+            <span class="shot-outline"></span><span class="shot-note">复制后直接发给我</span>
+          </figure>
+        </li>
+      </ol>
+    </div>
+  </dialog>
+
+  <dialog class="sheet-dialog theme-dialog" id="theme-dialog" aria-labelledby="theme-title">
+    <div class="theme-content">
+      <div class="dialog-title-row">
+        <div><small>换个顺眼的颜色</small><h2 id="theme-title">主题颜色</h2></div>
+        <button class="close-button" id="theme-close" type="button" aria-label="关闭主题设置">×</button>
+      </div>
+      <div class="palette-grid" role="group" aria-label="选择主题">
+        <button type="button" data-palette="silver" aria-pressed="true">
+          <span class="palette-swatches silver"><i></i><i></i><i></i></span>
+          <span><b>黑白银</b><small>克制、耐看</small></span>
+        </button>
+        <button type="button" data-palette="gold" aria-pressed="false">
+          <span class="palette-swatches gold"><i></i><i></i><i></i></span>
+          <span><b>黑白金</b><small>稳重、有质感</small></span>
+        </button>
+        <button type="button" data-palette="custom" aria-pressed="false">
+          <span class="palette-swatches custom"><i></i><i></i><i></i></span>
+          <span><b>自选颜色</b><small>按你的习惯</small></span>
+        </button>
+      </div>
+      <label class="color-picker" for="custom-color">
+        <span><b>自选强调色</b><small>选择后自动切换到自选主题</small></span>
+        <input id="custom-color" type="color" value="#6f63b6" aria-label="选择自定义主题颜色">
+      </label>
+      <p class="theme-footnote">界面明暗仍跟随手机系统，主题选择只改变强调色，并保存在当前浏览器。</p>
+    </div>
+  </dialog>
+
+  <dialog class="sheet-dialog contact-dialog" id="contact-dialog" aria-labelledby="contact-title">
+    <div class="contact-content">
+      <div class="dialog-title-row">
+        <div><small>应用作者</small><h2 id="contact-title">厦门建发 · 赵泽帆</h2></div>
+        <button class="close-button" id="contact-close" type="button" aria-label="关闭">×</button>
+      </div>
+      <div class="contact-links">
+        <a href="tel:13212730826"><small>电话</small><strong>13212730826</strong><span>›</span></a>
+        <a href="mailto:zzf8640283@126.com?subject=%E7%9A%AE%E6%A3%89%E6%88%90%E6%9C%AC%E6%8D%A2%E7%AE%97%E5%BA%94%E7%94%A8%E5%92%A8%E8%AF%A2"><small>邮箱</small><strong>zzf8640283@126.com</strong><span>›</span></a>
+      </div>
+      <div class="qr-section">
+        <h3>微信</h3>
+        <img src="./assets/author_wechat_qr.jpg" alt="赵泽帆的微信二维码，长按保存" width="920" height="1401">
+        <p>长按二维码保存到相册</p>
+      </div>
+    </div>
+  </dialog>
+</body>
+</html>

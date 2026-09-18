@@ -1,0 +1,20 @@
+.gradle/
+.kotlin/
+.tooling/
+.idea/
+build/
+**/build/
+local.properties
+private-signing/
+signing.properties
+*.iml
+*.hprof
+captures/
+
+# Historical build outputs and delivery archives stay on disk, not in source control.
+artifacts/
+dist/
+web/deliverables/current/
+web/deliverables/archive/*.zip
+web/screenshots/
+web/.delivery-staging-*/
