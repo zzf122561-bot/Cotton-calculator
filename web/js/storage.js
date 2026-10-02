@@ -1,50 +1,33 @@
-import { FIELDS, PRESET_DEFAULTS, createDefaultState, isAllowedInput, recalculate } from "./calculator.js";
+import { FIELDS, MACHINE_DEFAULTS, createDefaultState, isAllowedInput, recalculate } from "./calculator.js";
 
-export const STORAGE_KEY = "cottoncal.pwa.v1";
-
-function cloneDefaults() {
-  return {
-    selectedPreset: "hand",
-    hand: createDefaultState("hand"),
-    machine: createDefaultState("machine"),
-  };
-}
+export const STORAGE_KEY = "cottoncal.machine.v1";
 
 function sanitizeField(candidate, field, fallback) {
   if (typeof candidate !== "string") return fallback;
   if (candidate === "") return candidate;
-  if (field === "seedCottonPrice" && candidate === PRESET_DEFAULTS.hand.seedCottonPrice) return candidate;
   return isAllowedInput(candidate, FIELDS[field].scale) ? candidate : fallback;
 }
 
-function sanitizePreset(candidate, preset) {
-  const fallback = PRESET_DEFAULTS[preset];
-  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
-    return createDefaultState(preset);
-  }
+function sanitizeMachine(candidate) {
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return createDefaultState();
   const restored = {};
   for (const field of Object.keys(FIELDS)) {
-    restored[field] = sanitizeField(candidate[field], field, fallback[field]);
+    restored[field] = sanitizeField(candidate[field], field, MACHINE_DEFAULTS[field]);
   }
-  restored.basis = candidate.basis === "lint" || candidate.basis === "seed" ? candidate.basis : fallback.basis;
-  restored.detailsExpanded = typeof candidate.detailsExpanded === "boolean"
-    ? candidate.detailsExpanded
-    : fallback.detailsExpanded;
+  restored.basis = candidate.basis === "lint" || candidate.basis === "seed"
+    ? candidate.basis
+    : MACHINE_DEFAULTS.basis;
   return recalculate(restored);
 }
 
 export function deserializeState(serialized) {
-  if (typeof serialized !== "string") return cloneDefaults();
+  if (typeof serialized !== "string") return createDefaultState();
   try {
     const parsed = JSON.parse(serialized);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return cloneDefaults();
-    return {
-      selectedPreset: parsed.selectedPreset === "machine" ? "machine" : "hand",
-      hand: sanitizePreset(parsed.hand, "hand"),
-      machine: sanitizePreset(parsed.machine, "machine"),
-    };
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return createDefaultState();
+    return sanitizeMachine(parsed.machine);
   } catch {
-    return cloneDefaults();
+    return createDefaultState();
   }
 }
 
@@ -52,26 +35,22 @@ export function loadState(storage = globalThis.localStorage) {
   try {
     return deserializeState(storage.getItem(STORAGE_KEY));
   } catch {
-    return cloneDefaults();
+    return createDefaultState();
   }
 }
 
-export function serializeState(appState) {
-  const keep = (state) => Object.fromEntries([
-    ...Object.keys(FIELDS).map((field) => [field, state[field]]),
-    ["basis", state.basis],
-    ["detailsExpanded", state.detailsExpanded],
-  ]);
+export function serializeState(state) {
   return JSON.stringify({
-    selectedPreset: appState.selectedPreset,
-    hand: keep(appState.hand),
-    machine: keep(appState.machine),
+    machine: Object.fromEntries([
+      ...Object.keys(FIELDS).map((field) => [field, state[field]]),
+      ["basis", state.basis],
+    ]),
   });
 }
 
-export function saveState(appState, storage = globalThis.localStorage) {
+export function saveState(state, storage = globalThis.localStorage) {
   try {
-    storage.setItem(STORAGE_KEY, serializeState(appState));
+    storage.setItem(STORAGE_KEY, serializeState(state));
     return true;
   } catch {
     return false;

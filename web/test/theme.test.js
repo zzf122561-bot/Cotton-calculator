@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { DEFAULT_THEME, THEME_STORAGE_KEY, deserializeTheme, saveTheme } from "../js/theme.js";
 
 test("主题存储键固定，默认使用黑白银", () => {
-  assert.equal(THEME_STORAGE_KEY, "cottoncal.theme.v1");
+  assert.equal(THEME_STORAGE_KEY, "cottoncal.machine.theme.v1");
   assert.equal(DEFAULT_THEME.palette, "silver");
 });
 

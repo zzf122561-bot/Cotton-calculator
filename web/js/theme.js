@@ -1,4 +1,4 @@
-export const THEME_STORAGE_KEY = "cottoncal.theme.v1";
+export const THEME_STORAGE_KEY = "cottoncal.machine.theme.v1";
 export const DEFAULT_THEME = Object.freeze({ palette: "silver", customColor: "#6f63b6" });
 
 const PALETTES = new Set(["silver", "gold", "custom"]);

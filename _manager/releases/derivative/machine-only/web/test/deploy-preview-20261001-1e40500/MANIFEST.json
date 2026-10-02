@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "product": "machine-only-web-desktop",
+  "channel": "test",
+  "formalVersionPending": "1.0.0",
+  "sourcePackageVersion": "1.1.0",
+  "candidateId": "deploy-preview-20261001-1e40500",
+  "sourceBranch": "derivative/machine-only-locked-settings",
+  "sourceCommit": "1e40500b35c0f6040cc5259275ceb49a2016d6aa",
+  "webTree": "1c6be476b3379d73c2f1927283b1cf8ba56ce1a0",
+  "managerCommit": "c91270d6fa075838c0c082b81ef4a53da1e6c01f",
+  "packageFile": "machine-cottoncal-web-test-deploy-preview-20261001-1e40500.zip",
+  "packageBytes": 263391,
+  "packageSha256": "1a1daf8346a3012f20f167c620765f20d3801c317e086d1e22723b13150bef1a",
+  "storageKey": "cottoncal.machine.v1",
+  "cacheNamespace": "cottoncal-machine-v1",
+  "automatedEvidence": "Recorded separately; packaging does not assert tests passed.",
+  "browserEvidence": "Recorded separately; packaging does not perform browser acceptance.",
+  "userAcceptance": "Pending.",
+  "generatedAt": "2026-10-01T01:23:31.1362700+08:00"
+}

@@ -1,5 +1,5 @@
-const CACHE_PREFIX = "cottoncal-pwa-";
-const CACHE_NAME = "cottoncal-pwa-v1-20260906-8";
+const CACHE_PREFIX = "cottoncal-machine-v1-";
+const CACHE_NAME = "cottoncal-machine-v1-20261001-1";
 
 // PRECACHE_START
 const PRECACHE_URLS = [
@@ -8,17 +8,18 @@ const PRECACHE_URLS = [
   "./styles.css",
   "./manifest.webmanifest",
   "./js/app.js",
+  "./js/access-control.js",
+  "./js/admin-credential.js",
   "./js/calculator.js",
   "./js/decimal.js",
+  "./js/ledger-storage.js",
+  "./js/records.js",
+  "./js/sharing.js",
   "./js/storage.js",
   "./js/theme.js",
-  "./js/inquiry.js",
+  "./js/users.js",
   "./assets/cotton-boll.png",
   "./assets/author_wechat_qr.jpg",
-  "./assets/guide/step-1-preset.png",
-  "./assets/guide/step-2-price.png",
-  "./assets/guide/step-3-details.png",
-  "./assets/guide/step-4-inquiry.png",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/apple-touch-icon.png",

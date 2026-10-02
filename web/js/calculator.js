@@ -1,4 +1,4 @@
-import { Decimal, formatFixed, formatTrimmed, groupIntegerPart } from "./decimal.js";
+import { Decimal, formatFixed } from "./decimal.js";
 
 export const FIELDS = Object.freeze({
   seedCottonPrice: { scale: 6, label: "籽棉价" },
@@ -18,35 +18,18 @@ const ONE = Decimal.integer(1);
 const HUNDRED = Decimal.integer(100);
 const THOUSAND = Decimal.integer(1000);
 
-export const PRESET_DEFAULTS = Object.freeze({
-  hand: Object.freeze({
-    seedCottonPrice: "6.73832884794535",
-    lintPrice: "",
-    lintPercentage: "40.6",
-    lossPercentage: "2.5",
-    cottonseedPrice: "2.24",
-    processingFee: "800",
-    laborFee: "0",
-    warehouseFee: "91",
-    financeFee: "0",
-    subsidy: "100",
-    basis: "seed",
-    detailsExpanded: false,
-  }),
-  machine: Object.freeze({
-    seedCottonPrice: "7.3",
-    lintPrice: "",
-    lintPercentage: "38",
-    lossPercentage: "13",
-    cottonseedPrice: "2.5",
-    processingFee: "1000",
-    laborFee: "0",
-    warehouseFee: "0",
-    financeFee: "0",
-    subsidy: "0",
-    basis: "seed",
-    detailsExpanded: false,
-  }),
+export const MACHINE_DEFAULTS = Object.freeze({
+  seedCottonPrice: "7.3",
+  lintPrice: "",
+  lintPercentage: "38",
+  lossPercentage: "13",
+  cottonseedPrice: "2.5",
+  processingFee: "1000",
+  laborFee: "0",
+  warehouseFee: "0",
+  financeFee: "0",
+  subsidy: "0",
+  basis: "seed",
 });
 
 export function isAllowedInput(value, scale) {
@@ -140,8 +123,8 @@ export function recalculate(state) {
     : { ...state, seedCottonPrice: formatFixed(outcome.result.seedCottonPrice, 2), result: outcome.result, errors: [] };
 }
 
-export function createDefaultState(preset) {
-  return recalculate({ ...PRESET_DEFAULTS[preset] });
+export function createDefaultState() {
+  return recalculate({ ...MACHINE_DEFAULTS });
 }
 
 export function editState(state, field, rawValue) {
@@ -150,19 +133,4 @@ export function editState(state, field, rawValue) {
   if (!spec || !isAllowedInput(value, spec.scale) || state[field] === value) return state;
   const basis = field === "seedCottonPrice" ? "seed" : field === "lintPrice" ? "lint" : state.basis;
   return recalculate({ ...state, [field]: value, basis });
-}
-
-export function formatResult(result) {
-  if (!result) return null;
-  const money = (value) => groupIntegerPart(formatFixed(value, 2));
-  const integer = (value) => groupIntegerPart(formatFixed(value, 0));
-  const netFees = `${result.netFeesPerTon.compare(ZERO) >= 0 ? "+" : "-"}${money(result.netFeesPerTon.abs())}`;
-  return {
-    cottonseedYield: `${formatTrimmed(result.cottonseedYield.multiply(HUNDRED), 4)}%`,
-    cottonseedDeductionPerKg: formatTrimmed(result.cottonseedDeductionPerKg, 4),
-    netSeedCostPerKg: formatTrimmed(result.netSeedCostPerKg, 4),
-    rawLintCostPerTon: money(result.rawLintCostPerTon),
-    netFeesPerTon: netFees,
-    lintPrice: integer(result.lintPrice),
-  };
 }

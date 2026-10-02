@@ -6,11 +6,8 @@
   <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f4f4f3">
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0e0f10">
   <meta name="color-scheme" content="light dark">
-  <meta name="description" content="完全离线的籽棉价格与皮棉入库成本双向换算工具">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="皮棉换算">
-  <title>皮棉成本换算</title>
+  <meta name="description" content="机采棉籽棉价格与皮棉入库成本双向换算工具">
+  <title>机采棉成本换算</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
   <link rel="icon" href="./icons/icon-192.png" sizes="192x192" type="image/png">
@@ -20,11 +17,11 @@
 <body>
   <main class="app-shell">
     <header class="app-header">
-      <div class="brand-mark" aria-hidden="true">
+      <button class="brand-mark" id="settings-trigger" type="button" aria-label="应用标志">
         <img src="./assets/cotton-boll.png" alt="">
-      </div>
+      </button>
       <div class="title-stack">
-        <h1>皮棉成本换算</h1>
+        <h1>机采棉成本换算</h1>
       </div>
       <div class="header-actions">
         <button class="plain-button" id="guide-button" type="button">使用说明</button>
@@ -33,175 +30,187 @@
       </div>
     </header>
 
-    <nav class="segmented-control" aria-label="选择棉种">
-      <button type="button" data-preset="hand" aria-pressed="true">手摘棉</button>
-      <button type="button" data-preset="machine" aria-pressed="false">机采棉</button>
-    </nav>
-
-    <div class="content-grid">
-      <section class="primary-column" aria-label="换算输入">
-        <article class="card price-card">
-          <div class="section-heading">
-            <div>
-              <h2>价格桥</h2>
-              <p>最后实际修改的一侧作为计算依据</p>
-            </div>
-            <div class="fiber-mark" aria-hidden="true"><i></i><i></i><i></i></div>
+    <section class="calculator-column" aria-label="换算输入">
+      <article class="card price-card">
+        <div class="section-heading">
+          <div>
+            <h2>价格桥</h2>
+            <p>最后实际修改的一侧作为计算依据</p>
           </div>
+          <div class="fiber-mark" aria-hidden="true"><i></i><i></i><i></i></div>
+        </div>
 
-          <div class="price-bridge">
-            <label class="price-field" data-field-wrap="seedCottonPrice">
-              <span class="basis-pill" data-basis-for="seed">计算依据</span>
-              <span class="input-shell">
-                <span class="field-label">籽棉价</span>
-                <span class="value-row">
-                  <input id="seedCottonPrice" data-field="seedCottonPrice" inputmode="decimal" autocomplete="off" spellcheck="false" aria-describedby="seedCottonPrice-error">
-                  <span class="unit">元/kg</span>
-                </span>
+        <div class="price-bridge">
+          <label class="price-field" data-field-wrap="seedCottonPrice">
+            <span class="basis-pill" data-basis-for="seed">计算依据</span>
+            <span class="input-shell">
+              <span class="field-label">籽棉价</span>
+              <span class="value-row">
+                <input id="seedCottonPrice" data-field="seedCottonPrice" inputmode="decimal" autocomplete="off" spellcheck="false" aria-describedby="seedCottonPrice-error">
+                <span class="unit">元/kg</span>
               </span>
-              <small class="field-error" id="seedCottonPrice-error"></small>
-            </label>
+            </span>
+            <small class="field-error" id="seedCottonPrice-error"></small>
+          </label>
 
-            <div class="bridge-symbol" aria-hidden="true">
-              <span>⇄</span><small>自动</small>
-            </div>
+          <div class="bridge-symbol" aria-hidden="true">
+            <span>⇄</span><small>自动</small>
+          </div>
 
-            <label class="price-field" data-field-wrap="lintPrice">
-              <span class="basis-pill lint" data-basis-for="lint">自动换算</span>
-              <span class="input-shell">
-                <span class="field-label">皮棉价</span>
-                <span class="value-row">
-                  <input id="lintPrice" data-field="lintPrice" inputmode="numeric" autocomplete="off" spellcheck="false" aria-describedby="lintPrice-error">
-                  <span class="unit">元/吨</span>
-                </span>
+          <label class="price-field" data-field-wrap="lintPrice">
+            <span class="basis-pill lint" data-basis-for="lint">自动换算</span>
+            <span class="input-shell">
+              <span class="field-label">皮棉价</span>
+              <span class="value-row">
+                <input id="lintPrice" data-field="lintPrice" inputmode="numeric" autocomplete="off" spellcheck="false" aria-describedby="lintPrice-error">
+                <span class="unit">元/吨</span>
               </span>
-              <small class="field-error" id="lintPrice-error"></small>
-            </label>
-          </div>
-          <p class="card-error" id="card-error" role="alert" aria-live="polite"></p>
-        </article>
+            </span>
+            <small class="field-error" id="lintPrice-error"></small>
+          </label>
+        </div>
+        <p class="card-error" id="card-error" role="alert" aria-live="polite"></p>
+      </article>
 
-        <article class="card parameter-card">
-          <h2>计算参数</h2>
-          <div class="parameter-grid">
-            <label class="compact-field" data-field-wrap="lintPercentage">
-              <span>衣分率</span><span class="compact-input"><input id="lintPercentage" data-field="lintPercentage" inputmode="decimal" autocomplete="off"><b>%</b></span>
-              <small class="field-error" id="lintPercentage-error"></small>
-            </label>
-            <label class="compact-field" data-field-wrap="lossPercentage">
-              <span>损耗率</span><span class="compact-input"><input id="lossPercentage" data-field="lossPercentage" inputmode="decimal" autocomplete="off"><b>%</b></span>
-              <small class="field-error" id="lossPercentage-error"></small>
-            </label>
-            <label class="compact-field" data-field-wrap="cottonseedPrice">
-              <span>棉籽价格</span><span class="compact-input"><input id="cottonseedPrice" data-field="cottonseedPrice" inputmode="decimal" autocomplete="off"><b>元/kg</b></span>
-              <small class="field-error" id="cottonseedPrice-error"></small>
-            </label>
-            <label class="compact-field" data-field-wrap="processingFee">
-              <span>加工费</span><span class="compact-input"><input id="processingFee" data-field="processingFee" inputmode="decimal" autocomplete="off"><b>元/吨</b></span>
-              <small class="field-error" id="processingFee-error"></small>
-            </label>
-            <label class="compact-field" data-field-wrap="laborFee">
-              <span>人工费</span><span class="compact-input"><input id="laborFee" data-field="laborFee" inputmode="decimal" autocomplete="off"><b>元/吨</b></span>
-              <small class="field-error" id="laborFee-error"></small>
-            </label>
-            <label class="compact-field" data-field-wrap="warehouseFee">
-              <span>入库费</span><span class="compact-input"><input id="warehouseFee" data-field="warehouseFee" inputmode="decimal" autocomplete="off"><b>元/吨</b></span>
-              <small class="field-error" id="warehouseFee-error"></small>
-            </label>
-            <label class="compact-field" data-field-wrap="financeFee">
-              <span>财务费</span><span class="compact-input"><input id="financeFee" data-field="financeFee" inputmode="decimal" autocomplete="off"><b>元/吨</b></span>
-              <small class="field-error" id="financeFee-error"></small>
-            </label>
-            <label class="compact-field" data-field-wrap="subsidy">
-              <span>补贴（冲减）</span><span class="compact-input"><input id="subsidy" data-field="subsidy" inputmode="decimal" autocomplete="off"><b>元/吨</b></span>
-              <small class="field-error" id="subsidy-error"></small>
-            </label>
-          </div>
-        </article>
-      </section>
+      <div id="parameter-mount"></div>
 
-      <aside class="secondary-column">
-        <section class="detail-card">
-          <button class="detail-toggle" id="detail-toggle" type="button" aria-expanded="false" aria-controls="detail-body">
-            <span><strong>计算明细</strong><small id="detail-caption">查看成本如何形成</small></span>
-            <b id="detail-action">展开 ↓</b>
+      <article class="card record-actions-card" aria-labelledby="record-actions-title">
+        <div class="section-heading compact-heading">
+          <div>
+            <h2 id="record-actions-title">方案记录</h2>
+            <p>保存当前有效结果，后续参数变化不会改动旧记录</p>
+          </div>
+        </div>
+        <label class="record-note-field" for="record-note">
+          <span>备注（可选）</span>
+          <input id="record-note" type="text" maxlength="200" autocomplete="off" placeholder="例如：北疆到厂方案">
+        </label>
+        <div class="record-action-buttons">
+          <button class="action-button primary" id="save-record" type="button">保存记录</button>
+          <button class="action-button" id="compare-current" type="button">加入对比</button>
+          <button class="action-button" id="share-current" type="button">分享当前结果</button>
+        </div>
+        <p class="inline-status" id="record-action-status" role="status" aria-live="polite"></p>
+      </article>
+
+      <article class="card records-card" aria-labelledby="records-title">
+        <h2 class="visually-hidden" id="records-title">方案账本</h2>
+        <div class="records-tabs" role="tablist" aria-label="方案账本">
+          <button id="history-tab" type="button" role="tab" aria-selected="true" aria-controls="history-panel" tabindex="0">历史记录</button>
+          <button id="comparison-tab" type="button" role="tab" aria-selected="false" aria-controls="comparison-panel" tabindex="-1">
+            方案对比 <span class="count-badge" id="comparison-count" aria-label="0 条">0</span>
           </button>
-          <div class="detail-body" id="detail-body" hidden>
-            <dl>
-              <div><dt>棉籽产出率</dt><dd data-result="cottonseedYield"></dd></div>
-              <div><dt>棉籽抵扣</dt><dd><span data-result="cottonseedDeductionPerKg"></span> 元/kg</dd></div>
-              <div><dt>扣除棉籽后的籽棉成本</dt><dd><span data-result="netSeedCostPerKg"></span> 元/kg</dd></div>
-              <div><dt>皮棉原料成本</dt><dd><span data-result="rawLintCostPerTon"></span> 元/吨</dd></div>
-              <div><dt>费用净额</dt><dd><span data-result="netFeesPerTon"></span> 元/吨</dd></div>
-              <div class="total"><dt>最终入库成本</dt><dd><span data-result="lintPrice"></span> 元/吨</dd></div>
-            </dl>
-          </div>
+        </div>
+        <p class="ledger-status" id="ledger-status" role="status" aria-live="polite" aria-atomic="true"></p>
+        <section id="history-panel" role="tabpanel" aria-labelledby="history-tab">
+          <label class="history-search" for="history-query">
+            <span class="visually-hidden">搜索历史记录</span>
+            <input id="history-query" type="search" autocomplete="off" placeholder="搜索备注、日期或价格">
+          </label>
+          <div class="records-list" id="history-list"></div>
+          <button class="load-more-button" id="history-load-more" type="button" hidden>加载更多</button>
         </section>
-
-        <section class="lead-card" aria-labelledby="lead-title">
-          <span class="lead-eyebrow">采购沟通</span>
-          <h2 id="lead-title">有计划，带着测算聊</h2>
-          <p>有采购需求或现货资源，把数量、质量指标、交货地和账期一起带上，沟通会快很多。</p>
-          <div class="lead-actions">
-            <button id="copy-inquiry" type="button">复制测算摘要</button>
-            <a id="email-inquiry" href="mailto:zzf8640283@126.com">发邮件询价</a>
+        <section id="comparison-panel" role="tabpanel" aria-labelledby="comparison-tab" hidden>
+          <div class="comparison-toolbar">
+            <p>最多比较 4 条，棉金轨道显示籽棉单价差。</p>
+            <button class="text-button danger" id="clear-comparison" type="button">清空对比</button>
           </div>
-          <small id="copy-status" role="status" aria-live="polite"></small>
+          <div class="records-list comparison-list" id="comparison-list"></div>
         </section>
-
-        <button class="reset-button" id="reset-button" type="button">恢复手摘棉默认值</button>
-      </aside>
-    </div>
+      </article>
+    </section>
   </main>
 
-  <dialog class="sheet-dialog" id="reset-dialog" aria-labelledby="reset-title">
-    <form method="dialog">
-      <h2 id="reset-title">恢复默认参数？</h2>
-      <p id="reset-message"></p>
+  <dialog class="sheet-dialog unlock-dialog" id="unlock-dialog" aria-labelledby="unlock-title">
+    <form id="unlock-form">
+      <h2 id="unlock-title">输入设置密码</h2>
+      <label class="password-field" for="unlock-password">
+        <span>密码</span>
+        <input id="unlock-password" type="password" autocomplete="off" spellcheck="false">
+      </label>
+      <p id="unlock-status" role="status" aria-live="polite">此入口只用于避免误触，不是安全保护。</p>
       <div class="dialog-actions">
-        <button value="cancel" class="dialog-button" type="submit">取消</button>
-        <button value="confirm" class="dialog-button destructive" type="submit">恢复默认值</button>
+        <button class="dialog-button" id="unlock-cancel" type="button">取消</button>
+        <button class="dialog-button primary" id="unlock-submit" type="submit">验证并进入</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog class="sheet-dialog share-dialog" id="share-dialog" aria-labelledby="share-title">
+    <div class="share-dialog-layout">
+      <div class="dialog-title-row">
+        <div><small>只读预览</small><h2 id="share-title">分享测算结果</h2></div>
+        <button class="close-button" id="share-close" type="button" aria-label="关闭分享预览">×</button>
+      </div>
+      <pre class="share-preview" id="share-preview" tabindex="0"></pre>
+      <p class="inline-status" id="share-status" role="status" aria-live="polite"></p>
+      <div class="share-actions">
+        <button class="dialog-button" id="copy-share" type="button">复制文本</button>
+        <button class="dialog-button primary" id="system-share" type="button">系统分享</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="sheet-dialog admin-dialog" id="admin-dialog" aria-labelledby="admin-title">
+    <div class="admin-layout">
+      <div class="dialog-title-row admin-title-row">
+        <div><small>仅限本机</small><h2 id="admin-title">本机管理员</h2></div>
+        <button class="dialog-button" id="admin-exit" type="button">退出并锁定</button>
+      </div>
+      <p class="admin-note">用于管理普通授权用户、自己的密码与分享模板。该入口只防误触，不构成强安全边界。</p>
+
+      <section class="admin-section" id="admin-credential-section" aria-labelledby="admin-credential-title" aria-busy="false">
+        <div class="admin-section-heading">
+          <div><h3 id="admin-credential-title">修改管理员密码</h3><p>仅保存在当前浏览器的本站数据中，不会更改其他访客或整站的密码。</p></div>
+        </div>
+        <form class="admin-credential-form" id="admin-credential-form">
+          <label><span>当前管理员密码</span><input id="admin-current-password" type="password" autocomplete="current-password" spellcheck="false" required></label>
+          <label><span>新密码（8～128 个字符）</span><input id="admin-new-password" type="password" autocomplete="new-password" spellcheck="false" minlength="8" maxlength="128" required></label>
+          <label><span>确认新密码</span><input id="admin-confirm-password" type="password" autocomplete="new-password" spellcheck="false" minlength="8" maxlength="128" required></label>
+          <button class="action-button primary" type="submit">保存新密码</button>
+        </form>
+        <p class="inline-status" id="admin-credential-status" role="status" aria-live="polite"></p>
+        <p class="admin-note">清除本站浏览器数据后，本地新密码会丢失，入口将恢复静态包内置校验。</p>
+      </section>
+
+      <section class="admin-section" id="user-admin-section" aria-labelledby="users-title" aria-busy="false">
+        <div class="admin-section-heading">
+          <div><h3 id="users-title">普通授权用户</h3><p>新增或重置的密码不能与当前管理员密码或其他用户密码相同。</p></div>
+        </div>
+        <form class="new-user-form" id="new-user-form">
+          <label><span>名称</span><input id="new-user-name" type="text" maxlength="40" autocomplete="off" required></label>
+          <label><span>初始密码</span><input id="new-user-password" type="password" autocomplete="new-password" required></label>
+          <button class="action-button primary" type="submit">新增用户</button>
+        </form>
+        <p class="inline-status" id="user-admin-status" role="status" aria-live="polite"></p>
+        <div class="admin-user-list" id="admin-user-list"></div>
+      </section>
+
+      <section class="admin-section" aria-labelledby="template-title">
+        <div class="admin-section-heading template-heading">
+          <div><h3 id="template-title">分享模板</h3><p>动态数值只能显隐和排序，静态文字可编辑。</p></div>
+          <div class="template-add-actions">
+            <button class="text-button" id="add-static-block" type="button">新增文字</button>
+            <button class="text-button" id="add-divider-block" type="button">新增分隔线</button>
+          </div>
+        </div>
+        <p class="inline-status" id="template-status" role="status" aria-live="polite"></p>
+        <div class="template-list" id="template-list"></div>
+      </section>
+    </div>
   </dialog>
 
   <dialog class="sheet-dialog guide-dialog" id="guide-dialog" aria-labelledby="guide-title">
     <div class="guide-content">
       <div class="dialog-title-row">
-        <div><small>看一遍就会</small><h2 id="guide-title">使用说明</h2></div>
+        <div><small>快速上手</small><h2 id="guide-title">使用说明</h2></div>
         <button class="close-button" id="guide-close" type="button" aria-label="关闭使用说明">×</button>
       </div>
-      <p class="guide-intro">第一次用，按下面四步走，基本不会算错。</p>
+      <p class="guide-intro">页面只保留机采棉换算，数据留在当前浏览器。</p>
       <ol class="guide-steps">
-        <li>
-          <div class="guide-copy"><b>先选对棉种</b><p>手摘棉、机采棉的默认参数不一样。切换时各算各的，不会串值。</p></div>
-          <figure class="annotated-shot shot-preset">
-            <img src="./assets/guide/step-1-preset.png" alt="棉种选择区域示例">
-            <span class="shot-outline"></span><span class="shot-note">① 先选棉种</span>
-          </figure>
-        </li>
-        <li>
-          <div class="guide-copy"><b>你改哪边，就按哪边算</b><p>谈籽棉收购价就改左边；拿到皮棉目标价就改右边。光点进去，不会改变方向。</p></div>
-          <figure class="annotated-shot shot-price">
-            <img src="./assets/guide/step-2-price.png" alt="籽棉价和皮棉价双向换算示例">
-            <span class="shot-outline left"></span><span class="shot-outline right"></span>
-            <span class="shot-note left">改这里<br>算皮棉</span><span class="shot-note right">改这里<br>反算籽棉</span>
-          </figure>
-        </li>
-        <li>
-          <div class="guide-copy"><b>看不准的参数，先用默认值</b><p>衣分率、损耗率最影响结果；加工费、入库费等按你的真实业务填。出现红字就照提示改。</p></div>
-          <figure class="annotated-shot shot-detail">
-            <img src="./assets/guide/step-3-details.png" alt="计算参数和明细区域示例">
-            <span class="shot-outline"></span><span class="shot-note">衣分率、损耗率先核准</span>
-          </figure>
-        </li>
-        <li>
-          <div class="guide-copy"><b>有采购计划，就把摘要带上</b><p>点“复制测算摘要”，再补上数量、指标、交货地和账期，直接发我，聊起来快很多。</p></div>
-          <figure class="annotated-shot shot-inquiry">
-            <img src="./assets/guide/step-4-inquiry.png" alt="采购沟通入口示例">
-            <span class="shot-outline"></span><span class="shot-note">复制后直接发给我</span>
-          </figure>
-        </li>
+        <li class="guide-copy"><b>输入已知价格</b><p>修改籽棉价会换算皮棉价；修改皮棉价会反算籽棉价。</p></li>
+        <li class="guide-copy"><b>核对计算方向</b><p>“计算依据”标记会跟随最后实际修改的价格，不会因单纯聚焦而切换。</p></li>
+        <li class="guide-copy"><b>留意红色提示</b><p>出现提示时，按文案修正数值后会立即重新计算。</p></li>
       </ol>
     </div>
   </dialog>
@@ -230,7 +239,7 @@
         <span><b>自选强调色</b><small>选择后自动切换到自选主题</small></span>
         <input id="custom-color" type="color" value="#6f63b6" aria-label="选择自定义主题颜色">
       </label>
-      <p class="theme-footnote">界面明暗仍跟随手机系统，主题选择只改变强调色，并保存在当前浏览器。</p>
+      <p class="theme-footnote">界面明暗跟随系统，主题选择只改变强调色，并保存在当前浏览器。</p>
     </div>
   </dialog>
 
@@ -242,7 +251,7 @@
       </div>
       <div class="contact-links">
         <a href="tel:13212730826"><small>电话</small><strong>13212730826</strong><span>›</span></a>
-        <a href="mailto:zzf8640283@126.com?subject=%E7%9A%AE%E6%A3%89%E6%88%90%E6%9C%AC%E6%8D%A2%E7%AE%97%E5%BA%94%E7%94%A8%E5%92%A8%E8%AF%A2"><small>邮箱</small><strong>zzf8640283@126.com</strong><span>›</span></a>
+        <a href="mailto:zzf8640283@126.com?subject=%E6%9C%BA%E9%87%87%E6%A3%89%E6%88%90%E6%9C%AC%E6%8D%A2%E7%AE%97%E5%BA%94%E7%94%A8%E5%92%A8%E8%AF%A2"><small>邮箱</small><strong>zzf8640283@126.com</strong><span>›</span></a>
       </div>
       <div class="qr-section">
         <h3>微信</h3>
