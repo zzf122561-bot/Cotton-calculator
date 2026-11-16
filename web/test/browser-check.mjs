@@ -1,375 +1,224 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdir, rm, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { mkdir, rm } from "node:fs/promises";
+import { dirname, resolve, relative, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-
+import { createDefaultState } from "../js/calculator.js";
+import { createRecordSnapshot, serializeRecords, serializeComparison } from "../js/records.js";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const edgePath = process.env.EDGE_PATH;
-const screenshotPath = process.env.SCREENSHOT_PATH;
-const serverPort = Number(process.env.BROWSER_CHECK_PORT ?? "4187");
-const debugPort = Number(process.env.EDGE_DEBUG_PORT ?? "9222");
 if (!edgePath && process.env.NODE_TEST_CONTEXT) {
   const { test } = await import("node:test");
   test("桌面浏览器检查需要显式 EDGE_PATH", { skip: true }, () => {});
 } else {
-if (!edgePath) throw new Error("EDGE_PATH is required");
-const profile = resolve(root, "build", "browser-check-profile");
-assert.equal(profile.startsWith(resolve(root, "build") + "\\"), true);
-await rm(profile, { recursive: true, force: true });
-await mkdir(profile, { recursive: true });
-const server = spawn(process.execPath, ["server.mjs"], {
-  cwd: root,
-  env: { ...process.env, PORT: String(serverPort) },
-  stdio: ["ignore", "pipe", "pipe"],
-  windowsHide: true,
-});
-const edge = spawn(edgePath, [
-  "--headless=new",
-  "--disable-gpu",
-  "--no-first-run",
-  "--no-default-browser-check",
-  `--remote-debugging-port=${debugPort}`,
-  "--remote-debugging-address=127.0.0.1",
-  `--user-data-dir=${profile}`,
-  "about:blank",
-], { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
-let edgeDiagnostics = "";
-edge.stderr.on("data", (chunk) => { edgeDiagnostics += chunk.toString(); });
-edge.stdout.on("data", (chunk) => { edgeDiagnostics += chunk.toString(); });
-
-const wait = (milliseconds) => new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
-
-async function terminateProcessTree(child) {
-  if (process.platform !== "win32") {
-    child.kill();
-    return;
-  }
-  const killer = spawn("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
-    stdio: "ignore",
-    windowsHide: true,
-  });
-  await new Promise((resolvePromise) => {
-    killer.once("exit", resolvePromise);
-    killer.once("error", resolvePromise);
-  });
-}
-
-async function poll(url, attempts = 100) {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    try {
-      const response = await fetch(url);
-      if (response.ok) return response;
-    } catch {
-      // The local process is still starting.
+  if (!edgePath || !process.env.API_PYTHON) throw new Error("EDGE_PATH and scoped API_PYTHON required");
+  const port = Number(process.env.BROWSER_CHECK_PORT ?? 4187), debugPort = Number(process.env.EDGE_DEBUG_PORT ?? 9235);
+  const base = "http://127.0.0.1:" + port + "/v2/", build = resolve(root, "build");
+  const profile = resolve(build, "cloud-browser-" + process.pid), childPath = relative(build, profile);
+  assert.ok(childPath && !childPath.startsWith("..") && !isAbsolute(childPath));
+  await mkdir(profile, { recursive: true });
+  const server = spawn(process.env.API_PYTHON, ["test_server.py"], { cwd: resolve(root, "api"),
+    env: { ...process.env, BROWSER_CHECK_PORT: String(port) }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  const edge = spawn(edgePath, ["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
+    "--remote-debugging-port=" + debugPort, "--remote-debugging-address=127.0.0.1", "--user-data-dir=" + profile, "about:blank"],
+    { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  let diagnostics = "", socket, nextId = 1;
+  const pending = new Map(), exceptions = [];
+  for (const child of [server, edge]) for (const stream of [child.stdout, child.stderr])
+    stream.on("data", chunk => { diagnostics = (diagnostics + chunk.toString()).slice(-2000); });
+  const wait = ms => new Promise(done => setTimeout(done, ms));
+  async function poll(url) {
+    for (let i = 0; i < 150; i++) {
+      try { const response = await fetch(url); if (response.ok) return response; } catch { /* starting */ }
+      if (edge.exitCode !== null || server.exitCode !== null) break;
+      await wait(100);
     }
-    await wait(100);
+    throw new Error("Local process not ready: " + diagnostics);
   }
-  throw new Error(`Timed out waiting for ${url}`);
-}
-
-let socket;
-let closeBrowser = async () => {};
-try {
-  await poll(`http://127.0.0.1:${serverPort}/`);
+  function send(method, params = {}, sessionId) {
+    return new Promise((done, reject) => {
+      const id = nextId++; pending.set(id, { done, reject });
+      socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
+    });
+  }
+  async function terminate(child) {
+    if (!child.pid || child.exitCode !== null) return;
+    const killer = spawn("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+    await new Promise(done => { killer.once("exit", done); killer.once("error", done); });
+  }
   try {
-    await poll(`http://127.0.0.1:${debugPort}/json/version`);
-  } catch (error) {
-    throw new Error(`${error.message}; Edge exit=${edge.exitCode ?? "running"}; diagnostics=${edgeDiagnostics.slice(-1000)}`);
-  }
-  const targetResponse = await fetch(
-    `http://127.0.0.1:${debugPort}/json/new?${encodeURIComponent(`http://127.0.0.1:${serverPort}/?theme=light`)}`,
-    { method: "PUT" },
-  );
-  const target = await targetResponse.json();
-  socket = new WebSocket(target.webSocketDebuggerUrl);
-  await new Promise((resolvePromise, reject) => {
-    socket.addEventListener("open", resolvePromise, { once: true });
-    socket.addEventListener("error", reject, { once: true });
-  });
-
-  let nextId = 1;
-  const pending = new Map();
-  socket.addEventListener("message", (event) => {
-    const message = JSON.parse(event.data);
-    if (!message.id || !pending.has(message.id)) return;
-    const { resolve: resolvePromise, reject } = pending.get(message.id);
-    pending.delete(message.id);
-    if (message.error) reject(new Error(JSON.stringify(message.error)));
-    else resolvePromise(message.result);
-  });
-  const send = (method, params = {}) => new Promise((resolvePromise, reject) => {
-    const id = nextId;
-    nextId += 1;
-    pending.set(id, { resolve: resolvePromise, reject });
-    socket.send(JSON.stringify({ id, method, params }));
-  });
-  closeBrowser = async () => {
-    try {
-      await send("Browser.close");
-    } catch {
-      // The browser may close the protocol connection before acknowledging.
+    await poll(base + "api/healthz");
+    const version = await (await poll("http://127.0.0.1:" + debugPort + "/json/version")).json();
+    socket = new WebSocket(version.webSocketDebuggerUrl);
+    await new Promise((done, reject) => { socket.addEventListener("open", done, { once: true }); socket.addEventListener("error", reject, { once: true }); });
+    socket.addEventListener("message", event => {
+      const message = JSON.parse(event.data);
+      if (message.method === "Runtime.exceptionThrown") exceptions.push(message.params.exceptionDetails.text);
+      if (!pending.has(message.id)) return;
+      const callback = pending.get(message.id); pending.delete(message.id);
+      if (message.error) callback.reject(new Error(JSON.stringify(message.error))); else callback.done(message.result);
+    });
+    async function page(seed = "") {
+      const { browserContextId } = await send("Target.createBrowserContext", { disposeOnDetach: true });
+      const { targetId } = await send("Target.createTarget", { url: "about:blank", browserContextId });
+      const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true });
+      const command = (method, params) => send(method, params, sessionId);
+      await command("Page.enable"); await command("Runtime.enable"); await command("Network.enable");
+      await command("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+      if (seed) await command("Page.addScriptToEvaluateOnNewDocument", { source: seed });
+      const evaluate = async expression => {
+        const result = await command("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+        if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
+        return result.result.value;
+      };
+      const until = async expression => {
+        for (let i = 0; i < 250; i++) { if (await evaluate(expression)) return; await wait(50); }
+        throw new Error("Browser condition timed out: " + expression);
+      };
+      const ready = () => until("document.readyState === 'complete' && document.getElementById('door-user')?.options.length > 0 && !document.getElementById('door-submit').disabled");
+      const click = id => evaluate("document.getElementById(" + JSON.stringify(id) + ").click()");
+      const fill = values => evaluate(Object.entries(values).map(([id, value]) =>
+        "document.getElementById(" + JSON.stringify(id) + ").value=" + JSON.stringify(value)).join(";"));
+      const submit = id => evaluate("document.getElementById(" + JSON.stringify(id) + ").requestSubmit()");
+      const login = async userId => {
+        await fill({ "door-user": userId, "door-password": "browser-door-fixture" }); await submit("door-form");
+        await until("!document.getElementById('calculator-content').hidden");
+      };
+      const unlock = async (password, role = "settings") => {
+        await evaluate("for(let i=0;i<10;i++) document.getElementById('settings-trigger').click()");
+        await until("document.getElementById('unlock-dialog').open");
+        await fill({ "unlock-password": password }); await submit("unlock-form");
+        await until(role === "admin" ? "document.getElementById('admin-dialog').open" : "document.getElementById('parameter-card') !== null");
+      };
+      const edit = (id, value) => evaluate("{const input=document.getElementById(" + JSON.stringify(id) + ");input.value=" +
+        JSON.stringify(value) + ";input.dispatchEvent(new Event('input',{bubbles:true}));}");
+      await command("Page.navigate", { url: base + "?theme=light" }); await ready();
+      return { command, evaluate, until, click, fill, submit, login, unlock, edit, ready };
     }
-  };
-  const evaluate = async (expression) => {
-    const response = await send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
-    if (response.exceptionDetails) throw new Error(response.exceptionDetails.text);
-    return response.result.value;
-  };
-  const waitFor = async (expression, attempts = 100) => {
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      if (await evaluate(expression)) return;
-      await wait(50);
+    const legacy = createRecordSnapshot(createDefaultState(), { note: "旧遗留合成快照" });
+    const seeded = { "cottoncal.machine.history.v1": serializeRecords([legacy]), "cottoncal.machine.comparison.v1": serializeComparison([legacy.id]),
+      "cottoncal.machine.theme.v1": JSON.stringify({ palette: "gold", customColor: "#595e63" }),
+      "cottoncal.machine.users.v1": "obsolete", "cottoncal.machine.admin-credential.v1": "obsolete",
+      "cottoncal.machine.v1": "obsolete", "cottoncal.machine.share-template.v1": "obsolete" };
+    const seed = "if(location.pathname.startsWith('/v2/')&&!localStorage.getItem('fixture-seeded')){" +
+      Object.entries(seeded).map(([key, value]) => "localStorage.setItem(" + JSON.stringify(key) + "," + JSON.stringify(value) + ");").join("") +
+      "localStorage.setItem('fixture-seeded','1');}";
+    const a = await page(seed), b = await page();
+    if (process.env.COLLISION_ONLY === "1") {
+      const uid = await a.evaluate("document.getElementById('door-user').value");
+      await a.login(uid); await a.unlock("browser-level1-fixture"); await a.click("settings-tools");
+      await b.unlock("browser-admin-fixture", "admin");
+      for (const [kind, current] of [["door", "browser-door-fixture"], ["settings", "browser-level1-fixture"]]) {
+        await a.evaluate("document.getElementById('own-password-status').textContent=''");
+        await a.fill({ "own-password-kind": kind, "own-current-password": current,
+          "own-new-password": "browser-admin-fixture", "own-confirm-password": "browser-admin-fixture" });
+        await a.submit("own-password-form");
+        await a.until("document.getElementById('own-password-status').textContent.includes('层级冲突') && document.getElementById('own-password-section').getAttribute('aria-busy') === 'false'");
+        assert.equal(await a.evaluate("import('./js/app.js').then(m=>m.api.role)"), "settings");
+        assert.equal(await a.evaluate("document.getElementById('settings-dialog').open"), true);
+      }
+      await b.fill({ "new-user-name": "不应部分创建", "new-user-door": "browser-admin-fixture", "new-user-door-confirm": "browser-admin-fixture",
+        "new-user-password": "browser-level1-fixture", "new-user-confirm": "browser-level1-fixture" });
+      await b.submit("new-user-form");
+      await b.until("document.getElementById('user-admin-status').textContent.includes('层级冲突') && document.getElementById('user-admin-section').getAttribute('aria-busy') === 'false'");
+      assert.equal(await b.evaluate("document.querySelectorAll('#admin-user-list .admin-user-row').length"), 1);
+      for (const kind of ["door", "settings"]) {
+        await b.evaluate("document.getElementById('user-admin-status').textContent=''; {const row=document.querySelector('#admin-user-list .admin-user-row'); row.querySelector('[data-user-kind]').value=" +
+          JSON.stringify(kind) + ";row.querySelector('[data-user-password]').value='browser-admin-fixture';row.querySelector('[data-user-confirm]').value='browser-admin-fixture';row.querySelector('[data-action=\"reset-user\"]').click();}");
+        await b.until("document.getElementById('user-admin-status').textContent.includes('层级冲突') && document.getElementById('user-admin-section').getAttribute('aria-busy') === 'false'");
+      }
+      await b.fill({ "admin-current-password": "browser-admin-fixture", "admin-new-password": "browser-door-fixture",
+        "admin-confirm-password": "browser-door-fixture" });
+      await b.submit("admin-credential-form");
+      await b.until("document.getElementById('admin-credential-status').textContent.includes('层级冲突') && document.getElementById('admin-credential-section').getAttribute('aria-busy') === 'false'");
+      assert.equal(await b.evaluate("import('./js/app.js').then(m=>m.api.role)"), "admin");
+      assert.equal(await a.evaluate("import('./js/app.js').then(m=>m.api.request('/me/config')).then(x=>x.version)"), 1);
+      assert.equal(await b.evaluate("import('./js/app.js').then(m=>m.api.request('/admin/users')).then(x=>x.length)"), 1);
+      assert.deepEqual(exceptions, []);
+      console.log("BROWSER_COLLISION_OK Edge1280x900 real-local-API own-door own-settings creation admin-reset-door admin-reset-settings admin-change generic-conflict preserved-role preserved-credentials no-partial-write");
+    } else {
+    assert.equal(await a.evaluate("document.getElementById('calculator-content').hidden"), true);
+    assert.equal(await a.evaluate("localStorage.getItem('cottoncal.machine.users.v1')"), null);
+    assert.equal(await a.evaluate("document.documentElement.dataset.palette"), "gold");
+    const uid = await a.evaluate("document.getElementById('door-user').value");
+    await a.login(uid); await b.login(uid);
+    assert.equal(await a.evaluate("document.getElementById('parameter-card') === null"), true);
+    assert.equal(await a.evaluate("document.getElementById('legacy-count').textContent.includes('1 条旧历史')"), true);
+    assert.equal(await a.evaluate("document.querySelectorAll('#history-list .record-row').length"), 0);
+    assert.equal(await b.evaluate("document.getElementById('lintPrice').value"), "16987");
+    const cookies = (await a.command("Network.getCookies", { urls: [base] })).cookies;
+    assert.ok(cookies.some(cookie => cookie.name === "machine_session" && cookie.httpOnly && cookie.path === "/v2" && cookie.sameSite === "Strict"));
+    await a.evaluate("for(let i=0;i<9;i++) document.getElementById('settings-trigger').click()");
+    assert.equal(await a.evaluate("document.getElementById('unlock-dialog').open"), false);
+    await a.click("settings-trigger"); await a.fill({ "unlock-password": "browser-level1-fixture" }); await a.submit("unlock-form");
+    await a.until("document.getElementById('parameter-card') !== null"); await b.unlock("browser-level1-fixture");
+    await a.edit("processingFee", "1200"); await b.edit("processingFee", "1300");
+    await a.click("settings-tools"); await a.click("add-static-block");
+    await a.evaluate("{const input=[...document.querySelectorAll('[data-template-text]')].at(-1);input.value='合成预览一致';input.dispatchEvent(new Event('change',{bubbles:true}));}");
+    const preview = await a.evaluate("document.getElementById('template-preview').textContent");
+    assert.ok(preview.includes("合成预览一致") && preview.includes("17187"));
+    await a.click("save-cloud"); await a.until("document.getElementById('cloud-status').textContent.includes('已保存到服务器')");
+    await b.click("settings-tools"); await b.click("save-cloud");
+    await b.until("document.getElementById('settings-cloud-status').textContent.includes('其他会话修改')");
+    await b.click("settings-close"); assert.equal(await b.evaluate("document.getElementById('processingFee').value"), "1300");
+    await b.click("reload-cloud"); await b.until("document.getElementById('processingFee').value === '1200'");
+    await a.click("settings-close"); await a.click("share-current");
+    assert.equal(await a.evaluate("document.getElementById('share-preview').textContent"), preview); await a.click("share-close");
+    await a.fill({ "record-note": "新用户本机方案" }); await a.click("compare-current");
+    await a.until("document.querySelectorAll('#history-list .record-row').length === 1");
+    assert.equal(await b.evaluate("document.querySelectorAll('#history-list .record-row').length"), 0);
+    await a.command("Page.reload", { ignoreCache: true }); await a.ready();
+    await a.until("!document.getElementById('calculator-content').hidden");
+    assert.equal(await a.evaluate("document.getElementById('parameter-card') === null"), true);
+    assert.equal(await a.evaluate("document.querySelectorAll('#history-list .record-row').length"), 1);
+    assert.equal(await a.evaluate("localStorage.getItem('cottoncal.machine.v1')"), null);
+    await b.unlock("browser-admin-fixture", "admin");
+    assert.equal(await b.evaluate("document.getElementById('parameter-card') === null && !document.querySelector('#admin-dialog #template-list')"), true);
+    await b.fill({ "new-user-name": "合成其他用户", "new-user-door": "browser-door-fixture", "new-user-door-confirm": "browser-door-fixture",
+      "new-user-password": "browser-level1-fixture", "new-user-confirm": "browser-level1-fixture" });
+    await b.submit("new-user-form"); await b.until("document.querySelectorAll('#admin-user-list .admin-user-row').length === 2");
+    await a.click("switch-user"); await a.ready();
+    const other = await a.evaluate("[...document.getElementById('door-user').options].find(x=>x.textContent==='合成其他用户').value");
+    assert.notEqual(other, uid); await a.login(other);
+    assert.equal(await a.evaluate("document.querySelectorAll('#history-list .record-row').length"), 0);
+    assert.equal(await a.evaluate("document.getElementById('lintPrice').value"), "16987");
+    await a.click("switch-user"); await a.ready(); await a.login(uid); await a.unlock("browser-level1-fixture"); await a.click("settings-tools");
+    await a.fill({ "own-password-kind": "settings", "own-current-password": "browser-door-fixture",
+      "own-new-password": "browser-level1-new-fixture", "own-confirm-password": "browser-level1-new-fixture" });
+    await a.submit("own-password-form"); await a.until("document.getElementById('own-password-status').textContent.includes('密码不正确')");
+    await a.fill({ "own-password-kind": "settings", "own-current-password": "browser-level1-fixture",
+      "own-new-password": "browser-level1-new-fixture", "own-confirm-password": "browser-level1-new-fixture" });
+    await a.submit("own-password-form"); await a.until("document.getElementById('door-status').textContent.includes('旧会话已撤销')");
+    assert.equal(await b.evaluate("import('./js/app.js').then(m=>m.api.request('/admin/users').then(()=>200,e=>e.status))"), 401);
+    await b.command("Page.reload", { ignoreCache: true }); await b.ready(); await b.unlock("browser-admin-fixture", "admin");
+    await a.login(uid); await a.unlock("browser-level1-new-fixture");
+    await a.command("Network.emulateNetworkConditions", { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
+    await a.edit("processingFee", "1400"); await a.click("settings-tools"); await a.click("save-cloud");
+    await a.until("document.getElementById('settings-cloud-status').textContent.includes('未保存')");
+    await a.click("settings-close"); await a.click("lock-settings");
+    await a.evaluate("for(let i=0;i<10;i++) document.getElementById('settings-trigger').click()");
+    await a.fill({ "unlock-password": "browser-level1-new-fixture" }); await a.submit("unlock-form");
+    await a.until("document.getElementById('unlock-status').textContent.includes('无法连接')");
+    assert.equal(await a.evaluate("document.getElementById('parameter-card') === null"), true); await a.click("unlock-cancel");
+    await a.command("Network.emulateNetworkConditions", { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+    await a.click("reload-cloud"); await a.until("document.getElementById('cloud-status').textContent.includes('已读取最新配置')");
+    assert.equal(await a.evaluate("import('./js/app.js').then(m=>m.api.request('/me/config')).then(x=>x.machine.processingFee)"), "1200");
+    await b.evaluate("import('./js/app.js').then(m=>m.api.request('/admin/users/" + uid + "','PATCH',{enabled:false}))");
+    await a.evaluate("window.dispatchEvent(new Event('focus'))"); await a.until("document.getElementById('calculator-content').hidden");
+    await b.evaluate("import('./js/app.js').then(m=>m.api.request('/admin/users/" + uid + "','PATCH',{enabled:true}))");
+    await b.fill({ "admin-current-password": "wrong-admin-fixture", "admin-new-password": "browser-admin-new-fixture", "admin-confirm-password": "browser-admin-new-fixture" });
+    await b.submit("admin-credential-form"); await b.until("document.getElementById('admin-credential-status').textContent.includes('密码不正确')");
+    await b.fill({ "admin-current-password": "browser-admin-fixture", "admin-new-password": "browser-admin-new-fixture", "admin-confirm-password": "browser-admin-new-fixture" });
+    await b.submit("admin-credential-form"); await b.until("document.getElementById('door-status').textContent.includes('二级密码已更改')");
+    await b.command("Page.reload", { ignoreCache: true }); await b.ready(); await b.unlock("browser-admin-new-fixture", "admin");
+    assert.equal(await a.evaluate("(async()=>{for(const key of await caches.keys())for(const request of await(await caches.open(key)).keys())if(new URL(request.url).pathname.startsWith('/v2/api/'))return false;return true;})()"), true);
+    assert.deepEqual(exceptions, []);
+    console.log("BROWSER_CHECK_OK Edge 1280x900 two-independent-cookie-contexts real-local-API door ten-tap role-separation migration legacy-ledger UUID-isolation cloud-save conflict final-preview refresh-relock own-kind-password admin-password-rotation revocation offline-no-fallback API-no-cache calculation-history-comparison theme");
     }
-    throw new Error(`Timed out waiting for browser condition: ${expression}`);
-  };
-
-  await send("Page.enable");
-  await send("Emulation.setDeviceMetricsOverride", {
-    width: 1280,
-    height: 900,
-    deviceScaleFactor: 1,
-    mobile: false,
-  });
-  await waitFor("document.readyState === 'complete' && document.title === '机采棉成本换算'");
-  assert.equal(await evaluate("document.title"), "机采棉成本换算");
-  assert.equal(await evaluate("document.getElementById('parameter-card') === null"), true);
-  assert.equal(await evaluate("document.getElementById('history-tab').getAttribute('aria-selected')"), "true");
-  assert.equal(await evaluate("document.getElementById('comparison-count').textContent"), "0");
-  await evaluate("document.getElementById('history-tab').focus(); document.getElementById('history-tab').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))")
-  assert.equal(await evaluate("document.getElementById('comparison-tab').getAttribute('aria-selected')"), "true");
-  assert.equal(await evaluate("document.activeElement.id"), "comparison-tab");
-  assert.equal(await evaluate("document.getElementById('history-tab').tabIndex"), -1);
-  await evaluate("document.getElementById('comparison-tab').dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))")
-  assert.equal(await evaluate("document.getElementById('history-tab').getAttribute('aria-selected')"), "true");
-  assert.equal(await evaluate("document.activeElement.id"), "history-tab");
-
-  await evaluate("for (let index = 0; index < 9; index += 1) document.getElementById('settings-trigger').click()")
-  assert.equal(await evaluate("document.getElementById('unlock-dialog').open"), false);
-  await evaluate("document.getElementById('settings-trigger').click()")
-  assert.equal(await evaluate("document.getElementById('unlock-dialog').open"), true);
-  assert.equal(await evaluate("document.activeElement.id"), "unlock-password");
-
-  await evaluate(`import('./js/app.js').then((module) => {
-    module.accessGate.authenticate = async (candidate) => candidate === 'admin-fixture'
-      ? { type: 'admin' }
-      : { type: 'user', id: 'browser-user', name: '浏览器检查用户' };
-  })`);
-  await evaluate("document.getElementById('unlock-password').value = 'ordinary-fixture'; document.getElementById('unlock-form').requestSubmit()")
-  await waitFor("document.getElementById('parameter-card') !== null");
-  assert.equal(await evaluate("document.getElementById('processingFee').value"), "1000");
-
-  await evaluate("const input = document.getElementById('processingFee'); input.value = '1200'; input.dispatchEvent(new Event('input', { bubbles: true }))")
-  assert.equal(await evaluate("JSON.parse(localStorage.getItem('cottoncal.machine.v1')).machine.processingFee"), "1200");
-  assert.equal(await evaluate("document.getElementById('lintPrice').value"), "17187");
-
-  await evaluate("document.getElementById('record-note').value = '浏览器方案甲'; document.getElementById('compare-current').click()")
-  await waitFor("document.querySelectorAll('#history-list .record-row').length === 1");
-  assert.equal(await evaluate("JSON.parse(localStorage.getItem('cottoncal.machine.history.v1')).records.length"), 1);
-  assert.equal(await evaluate("JSON.parse(localStorage.getItem('cottoncal.machine.comparison.v1')).recordIds.length"), 1);
-  assert.equal(await evaluate("document.getElementById('comparison-count').textContent"), "1");
-  await evaluate("document.getElementById('comparison-tab').click()")
-  assert.equal(await evaluate("document.getElementById('comparison-panel').hidden"), false);
-  assert.equal(await evaluate("document.querySelectorAll('#comparison-list .comparison-row').length"), 1);
-  assert.equal(await evaluate("document.querySelector('#comparison-list .price-delta-track') !== null"), true);
-  assert.equal(await evaluate("document.querySelector('#comparison-list .price-delta-label span').textContent"), "籽棉单价差");
-  assert.equal(await evaluate("document.querySelector('#comparison-list .price-delta-label strong').textContent"), "相同");
-  assert.equal(await evaluate("document.querySelector('#comparison-list .price-delta-track i').style.left"), "50%");
-  await evaluate("document.querySelector('#comparison-list [data-action=remove]').click()")
-  await waitFor("document.getElementById('comparison-count').textContent === '0'");
-  assert.equal(await evaluate("document.getElementById('ledger-status').textContent.includes('已从方案对比移除')"), true);
-  assert.equal(await evaluate("document.activeElement.id"), "comparison-tab");
-  await evaluate("document.getElementById('history-tab').click()")
-  assert.equal(await evaluate("document.querySelector('#history-list [data-action=compare]').getAttribute('aria-label').includes('浏览器方案甲')"), true);
-  await evaluate("document.querySelector('#history-list [data-action=compare]').click()")
-  await waitFor("document.getElementById('comparison-count').textContent === '1'");
-  assert.equal(await evaluate("document.getElementById('ledger-status').textContent.includes('已加入方案对比')"), true);
-  assert.equal(await evaluate("document.activeElement.dataset.action"), "compare");
-  await evaluate("document.getElementById('history-tab').click(); document.querySelector('#history-list [data-action=share]').click()")
-  await waitFor("document.getElementById('share-dialog').open");
-  assert.equal(await evaluate("document.getElementById('share-preview').textContent.includes('测算日期：')"), true);
-  assert.equal(await evaluate("document.getElementById('share-preview').textContent.includes('现货价格：17187元/吨')"), true);
-  await evaluate("document.getElementById('share-close').click()")
-
-  await evaluate(`for (let index = 1; index <= 31; index += 1) {
-    document.getElementById('record-note').value = '分页记录' + index;
-    document.getElementById('save-record').click();
-  }`)
-  await waitFor("JSON.parse(localStorage.getItem('cottoncal.machine.history.v1')).records.length === 32");
-  assert.equal(await evaluate("document.querySelectorAll('#history-list .record-row').length"), 30);
-  assert.equal(await evaluate("document.getElementById('history-load-more').hidden"), false);
-  await evaluate("document.getElementById('history-load-more').focus(); document.getElementById('history-load-more').click()")
-  assert.equal(await evaluate("document.getElementById('history-load-more').hidden"), true);
-  assert.equal(await evaluate("document.activeElement.closest('.record-row') !== null && Boolean(document.activeElement.dataset.action)"), true);
-  assert.equal(await evaluate("document.activeElement.getAttribute('aria-label').includes('列表第 31 条')"), true);
-  await evaluate("document.getElementById('history-load-more').dispatchEvent(new MouseEvent('click', { bubbles: true }))")
-  assert.equal(await evaluate("document.activeElement.id"), "history-query");
-
-  await evaluate("for (let index = 0; index < 10; index += 1) document.getElementById('settings-trigger').click()")
-  await waitFor("document.getElementById('unlock-dialog').open");
-  await evaluate("document.getElementById('unlock-password').value = 'admin-fixture'; document.getElementById('unlock-form').requestSubmit()")
-  await waitFor("document.getElementById('admin-dialog').open");
-  assert.equal(await evaluate("document.querySelectorAll('#admin-user-list .admin-user-row').length"), 1);
-  assert.equal(await evaluate("document.querySelectorAll('#template-list .template-row').length >= 12"), true);
-  assert.equal(await evaluate("document.querySelector('#admin-user-list [data-action=toggle-user]').getAttribute('aria-label').includes('FYX')"), true);
-  await evaluate(`window.__originalVerifier = JSON.parse(localStorage.getItem('cottoncal.machine.users.v1')).users[0].verifierBase64;
-    document.getElementById('new-user-name').value = 'FYX';
-    document.getElementById('new-user-password').value = 'browser-new-fixture';
-    document.querySelector('#admin-user-list [data-user-password]').value = 'browser-blocked-reset-fixture';
-    document.getElementById('new-user-form').requestSubmit();
-    document.getElementById('new-user-form').dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
-    document.querySelector('#admin-user-list [data-action=reset-user]').dispatchEvent(new MouseEvent('click', { bubbles: true }));`)
-  assert.equal(await evaluate("document.getElementById('user-admin-section').getAttribute('aria-busy')"), "true");
-  assert.equal(await evaluate("[...document.querySelectorAll('#user-admin-section input, #user-admin-section button')].every((control) => control.disabled)"), true);
-  await waitFor("document.getElementById('user-admin-section').getAttribute('aria-busy') === 'false' && JSON.parse(localStorage.getItem('cottoncal.machine.users.v1')).users.length === 2", 300);
-  assert.equal(await evaluate("JSON.parse(localStorage.getItem('cottoncal.machine.users.v1')).users[0].verifierBase64 === window.__originalVerifier"), true);
-  assert.equal(await evaluate("new Set([...document.querySelectorAll('#admin-user-list [data-action=toggle-user]')].map((node) => node.getAttribute('aria-label'))).size"), 2);
-  assert.equal(await evaluate("[...document.querySelectorAll('#admin-user-list [data-action=toggle-user]')].every((node) => /列表第 [12] 位/.test(node.getAttribute('aria-label')))"), true);
-  await evaluate("document.querySelector('#admin-user-list [data-user-password]').value = 'browser-reset-after-release-fixture'; document.querySelector('#admin-user-list [data-action=reset-user]').click()")
-  await waitFor("document.getElementById('user-admin-section').getAttribute('aria-busy') === 'false' && JSON.parse(localStorage.getItem('cottoncal.machine.users.v1')).users[0].verifierBase64 !== window.__originalVerifier", 300);
-  assert.equal(await evaluate("document.getElementById('user-admin-status').textContent.includes('用户密码已重置')"), true);
-  await evaluate("document.querySelector('#admin-user-list [data-action=toggle-user]').click()")
-  assert.equal(await evaluate("document.activeElement.dataset.action"), "toggle-user");
-  assert.equal(await evaluate("document.getElementById('user-admin-status').textContent.includes('用户已停用')"), true);
-  await evaluate("document.getElementById('add-divider-block').click(); document.getElementById('add-divider-block').click(); document.getElementById('add-static-block').click(); document.getElementById('add-static-block').click()")
-  assert.equal(await evaluate(`(() => {
-    const labels = [...document.querySelectorAll('#template-list [data-action=remove-block]')]
-      .map((node) => node.getAttribute('aria-label')).filter((label) => label.includes('分隔线模块'));
-    return labels.length >= 2 && new Set(labels).size === labels.length && labels.every((label) => /模板第 \\d+ 项/.test(label));
-  })()`), true);
-  assert.equal(await evaluate(`(() => {
-    const labels = [...document.querySelectorAll('#template-list [data-action=remove-block]')]
-      .map((node) => node.getAttribute('aria-label')).filter((label) => label.includes('静态文字模块“新增文字”'));
-    return labels.length >= 2 && new Set(labels).size === labels.length && labels.every((label) => /模板第 \\d+ 项/.test(label));
-  })()`), true);
-  assert.equal(await evaluate("document.querySelector('#template-list [data-template-visible]').getAttribute('aria-label').includes('模块')"), true);
-  await evaluate("document.querySelector('#template-list [data-template-visible]').click()")
-  assert.equal(await evaluate("document.activeElement.hasAttribute('data-template-visible')"), true);
-  await evaluate("document.getElementById('admin-exit').click()")
-  await waitFor("!document.getElementById('admin-dialog').open && document.getElementById('parameter-card') === null");
-
-  await evaluate("document.getElementById('theme-button').click(); document.querySelector('[data-palette=gold]').click()")
-  assert.equal(await evaluate("document.documentElement.dataset.palette"), "gold");
-  await evaluate("document.getElementById('theme-dialog').close()")
-
-  if (screenshotPath) {
-    await evaluate("document.getElementById('comparison-tab').click()")
-    const capture = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
-    await writeFile(screenshotPath, Buffer.from(capture.data, "base64"));
-    await evaluate("document.getElementById('history-tab').click()")
+  } finally {
+    try { if (socket?.readyState === WebSocket.OPEN) await send("Browser.close"); } catch { /* exits */ }
+    socket?.close(); await Promise.all([terminate(server), terminate(edge)]);
+    for (const child of [server, edge]) { child.stdout.destroy(); child.stderr.destroy(); child.unref(); }
+    await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
-
-  await send("Page.reload", { ignoreCache: true });
-  await waitFor("document.readyState === 'complete'");
-  await waitFor("document.getElementById('seedCottonPrice').value !== ''");
-  assert.equal(await evaluate("document.getElementById('parameter-card') === null"), true);
-  assert.equal(await evaluate("JSON.parse(localStorage.getItem('cottoncal.machine.v1')).machine.processingFee"), "1200");
-  assert.equal(await evaluate("JSON.parse(localStorage.getItem('cottoncal.machine.history.v1')).records.length"), 32);
-  assert.equal(await evaluate("document.querySelectorAll('#history-list .record-row').length"), 30);
-  assert.equal(await evaluate("localStorage.getItem('cottoncal.machine.users-initialized.v1') !== null"), true);
-  assert.equal(await evaluate("document.documentElement.dataset.palette"), "gold");
-
-  await evaluate(`(async () => {
-    const [{ createPasswordCredential }, { serializeAdminCredential }] = await Promise.all([
-      import('./js/users.js'), import('./js/admin-credential.js'),
-    ]);
-    const credential = await createPasswordCredential('browser-admin-old-fixture');
-    localStorage.setItem('cottoncal.machine.admin-credential.v1', serializeAdminCredential(credential));
-  })()`);
-  await send("Page.reload", { ignoreCache: true });
-  await waitFor("document.readyState === 'complete' && document.getElementById('seedCottonPrice').value !== ''");
-  assert.equal(await evaluate("document.getElementById('admin-dialog').open"), false);
-  assert.equal(await evaluate("document.getElementById('parameter-card') === null"), true);
-  await evaluate("window.__lockedAdminSerialized = localStorage.getItem('cottoncal.machine.admin-credential.v1')")
-  await evaluate(`document.getElementById('admin-current-password').value = 'browser-admin-old-fixture';
-    document.getElementById('admin-new-password').value = 'browser-admin-blocked-fixture';
-    document.getElementById('admin-confirm-password').value = 'browser-admin-blocked-fixture';
-    document.getElementById('admin-credential-form').dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));`);
-  assert.equal(await evaluate("document.getElementById('admin-credential-status').textContent"), "");
-  assert.equal(await evaluate("localStorage.getItem('cottoncal.machine.admin-credential.v1') === window.__lockedAdminSerialized"), true);
-
-  await evaluate("document.getElementById('admin-credential-form').reset(); for (let index = 0; index < 10; index += 1) document.getElementById('settings-trigger').click()")
-  await waitFor("document.getElementById('unlock-dialog').open");
-  await evaluate("document.getElementById('unlock-password').value = 'browser-admin-old-fixture'; document.getElementById('unlock-form').requestSubmit()")
-  await waitFor("document.getElementById('admin-dialog').open");
-  assert.equal(await evaluate("['admin-current-password', 'admin-new-password', 'admin-confirm-password'].every((id) => document.getElementById(id).type === 'password')"), true);
-  assert.equal(await evaluate("document.getElementById('admin-credential-section').textContent.includes('当前浏览器')"), true);
-
-  await evaluate(`document.getElementById('admin-current-password').value = 'browser-wrong-old-fixture';
-    document.getElementById('admin-new-password').value = 'browser-admin-new-fixture';
-    document.getElementById('admin-confirm-password').value = 'browser-admin-new-fixture';
-    document.getElementById('admin-credential-form').requestSubmit();`);
-  await waitFor("document.getElementById('admin-credential-status').textContent.includes('当前管理员密码不正确')");
-  assert.equal(await evaluate("['admin-current-password', 'admin-new-password', 'admin-confirm-password'].every((id) => document.getElementById(id).value === '')"), true);
-  await evaluate(`document.getElementById('admin-current-password').value = 'browser-admin-old-fixture';
-    document.getElementById('admin-new-password').value = 'browser-admin-new-fixture';
-    document.getElementById('admin-confirm-password').value = 'browser-admin-other-fixture';
-    document.getElementById('admin-credential-form').requestSubmit();`);
-  await waitFor("document.getElementById('admin-credential-status').textContent.includes('不一致')");
-  await evaluate(`document.getElementById('admin-current-password').value = 'browser-admin-old-fixture';
-    document.getElementById('admin-new-password').value = 'browser-new-fixture';
-    document.getElementById('admin-confirm-password').value = 'browser-new-fixture';
-    document.getElementById('admin-credential-form').requestSubmit();`);
-  await waitFor("document.getElementById('admin-credential-status').textContent.includes('普通用户')");
-
-  await evaluate(`window.__adminOriginalSerialized = localStorage.getItem('cottoncal.machine.admin-credential.v1');
-    window.__originalStorageSetItem = Storage.prototype.setItem;
-    Storage.prototype.setItem = function(key, value) {
-      if (key === 'cottoncal.machine.admin-credential.v1') throw new Error('fixture-write-denied');
-      return window.__originalStorageSetItem.call(this, key, value);
-    };
-    document.getElementById('admin-current-password').value = 'browser-admin-old-fixture';
-    document.getElementById('admin-new-password').value = 'browser-admin-new-fixture';
-    document.getElementById('admin-confirm-password').value = 'browser-admin-new-fixture';
-    document.getElementById('admin-credential-form').requestSubmit();`);
-  await waitFor("document.getElementById('admin-credential-status').textContent.includes('浏览器存储失败')", 300);
-  assert.equal(await evaluate("localStorage.getItem('cottoncal.machine.admin-credential.v1') === window.__adminOriginalSerialized"), true);
-  await evaluate("Storage.prototype.setItem = window.__originalStorageSetItem")
-
-  await evaluate(`document.getElementById('admin-current-password').value = 'browser-admin-old-fixture';
-    document.getElementById('admin-new-password').value = 'browser-admin-new-fixture';
-    document.getElementById('admin-confirm-password').value = 'browser-admin-new-fixture';
-    document.getElementById('admin-credential-form').requestSubmit();
-    document.getElementById('admin-credential-form').dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));`);
-  assert.equal(await evaluate("document.getElementById('admin-credential-section').getAttribute('aria-busy')"), "true");
-  assert.equal(await evaluate("document.getElementById('user-admin-section').getAttribute('aria-busy')"), "true");
-  assert.equal(await evaluate("document.getElementById('admin-exit').disabled"), true);
-  await waitFor("document.getElementById('admin-credential-status').textContent.includes('当前浏览器保存')", 300);
-  assert.equal(await evaluate("localStorage.getItem('cottoncal.machine.admin-credential.v1') !== window.__adminOriginalSerialized"), true);
-  assert.equal(await evaluate("!localStorage.getItem('cottoncal.machine.admin-credential.v1').includes('browser-admin-new-fixture')"), true);
-  await evaluate(`document.getElementById('new-user-name').value = '冲突测试';
-    document.getElementById('new-user-password').value = 'browser-admin-new-fixture';
-    document.getElementById('new-user-form').requestSubmit();`);
-  await waitFor("document.getElementById('user-admin-status').textContent.includes('管理员密码相同')", 300);
-
-  await evaluate("document.getElementById('admin-exit').click()")
-  await waitFor("!document.getElementById('admin-dialog').open && document.getElementById('parameter-card') === null");
-  await send("Page.reload", { ignoreCache: true });
-  await waitFor("document.readyState === 'complete' && document.getElementById('seedCottonPrice').value !== ''");
-  await evaluate("for (let index = 0; index < 10; index += 1) document.getElementById('settings-trigger').click()")
-  await waitFor("document.getElementById('unlock-dialog').open");
-  await evaluate("document.getElementById('unlock-password').value = 'browser-admin-old-fixture'; document.getElementById('unlock-form').requestSubmit()")
-  await waitFor("document.getElementById('unlock-status').textContent.includes('密码不正确')", 300);
-  assert.equal(await evaluate("document.getElementById('admin-dialog').open"), false);
-  await evaluate("document.getElementById('unlock-password').value = 'browser-admin-new-fixture'; document.getElementById('unlock-form').requestSubmit()")
-  await waitFor("document.getElementById('admin-dialog').open", 300);
-  assert.equal(await evaluate("document.querySelectorAll('#admin-user-list .admin-user-row').length"), 2);
-  await evaluate("document.getElementById('admin-exit').click()")
-  await waitFor("!document.getElementById('admin-dialog').open && document.getElementById('parameter-card') === null");
-
-  console.log("BROWSER_CHECK_OK 1280x900 locked keyboard-tabs injected-user parameters ledger-live focus-restore load-more-end-focus seed-price-comparison share second-ten-tap admin user-mutation-gate admin-password-rotation storage-failure collision reload-old-rejected-new-accepted contextual-aria exit-relock persistence reload-relock theme");
-} finally {
-  await closeBrowser();
-  await wait(700);
-  if (socket?.readyState === WebSocket.OPEN) socket.close();
-  await Promise.all([terminateProcessTree(server), terminateProcessTree(edge)]);
-  server.stdout.destroy();
-  server.stderr.destroy();
-  edge.stdout.destroy();
-  edge.stderr.destroy();
-  server.unref();
-  edge.unref();
-  await wait(500);
-  await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-}
 }

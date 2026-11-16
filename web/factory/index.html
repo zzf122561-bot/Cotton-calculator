@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>机采棉价格测算</title><meta name="color-scheme" content="light">
+  <link rel="stylesheet" href="./style.css"><script type="module" src="./farmer.js"></script>
+</head>
+<body>
+<main class="shell">
+  <header class="masthead"><div><button class="brand" id="settings-trigger" type="button" aria-label="棉花标志"><img src="./cotton-boll.png" alt=""></button><h1>机采棉价格测算</h1></div></header>
+  <p id="status" class="status" role="status" aria-live="polite">正在连接…</p>
+  <button id="connect-retry" class="secondary" hidden>重新连接</button>
+  <section id="entry" class="panel entry" hidden>
+    <h2>先选择您的加工厂</h2><p>输入厂方提供的 8 位厂码，使用本厂的测算方案。</p>
+    <form id="code-form"><label for="factory-code">加工厂码</label><div class="input-action"><input id="factory-code" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" autocomplete="off" required placeholder="请输入 8 位厂码"><button class="primary">查找加工厂</button></div></form>
+    <form id="join-form" hidden><div class="factory-confirm"><span>即将进入</span><strong id="found-name"></strong></div><label for="phone">联系手机号</label><input id="phone" type="tel" inputmode="tel" autocomplete="tel" pattern="1[0-9]{10}" maxlength="11" required placeholder="请输入 11 位手机号"><button class="primary wide" id="enter-button">确认进入本厂</button></form>
+  </section>
+  <div id="workspace" hidden>
+    <section class="factory-strip"><div><span>当前加工厂</span><strong id="factory-name"></strong></div></section>
+    <section class="panel calculator" aria-labelledby="calc-heading">
+      <div class="section-heading"><h2 id="calc-heading">算一算，籽棉多少钱</h2></div>
+      <p>改籽棉价或期货价，另一边自动换算。基差只在您手动修改时变化。</p>
+      <div class="price-layout">
+        <div class="seed-price"><label for="seed-price">籽棉价格</label><div class="price-input"><input id="seed-price" inputmode="decimal" autocomplete="off" aria-describedby="seed-unit"><span id="seed-unit">元/公斤</span></div></div>
+        <div class="market-prices"><label for="futures-price">期货价格</label><div class="price-input"><input id="futures-price" inputmode="numeric" autocomplete="off" aria-describedby="futures-unit"><span id="futures-unit">元/吨</span></div>
+        <label for="basis-price">基差 <span class="field-note">可填正数或负数</span></label><div class="price-input"><input id="basis-price" type="text" inputmode="text" autocomplete="off" aria-describedby="basis-unit"><span id="basis-unit">元/吨</span></div>
+        <div class="lint-total"><span>皮棉合计 <small>期货价格＋基差</small></span><div><output id="lint-total">—</output> <span>元/吨</span></div></div></div>
+      </div>
+      <p id="result-detail" class="help" role="status" aria-live="polite" hidden></p><button id="retry-calculate" class="secondary" hidden>重新测算</button>
+      <label for="plan-note">对比备注 <span class="field-note">选填，例如“今天的报价”</span></label><input id="plan-note" maxlength="200" placeholder="方便区分本次对比的方案">
+      <p class="help">比价只在当前页面临时保留，刷新或离开后清空。</p>
+      <div class="actions"><button id="add-current" class="primary" disabled>加入对比</button><button id="share-current" class="secondary" disabled>分享报价</button></div>
+    </section>
+    <section class="panel" id="comparison-panel"><div class="section-heading"><h2>方案比一比</h2><strong id="compare-count">0 / 4</strong></div><p>最多比较 4 个方案，直接看籽棉每公斤相差多少。</p><div id="comparison-chart" class="comparison-chart" hidden></div><div id="comparison" class="comparison-list"></div></section>
+  </div>
+</main>
+<dialog id="share-dialog"><h2>分享报价</h2><textarea id="share-text" readonly rows="12" aria-label="报价文字"></textarea><div class="actions"><button id="share-copy" class="primary">复制文字</button><button id="share-send" class="secondary">发送分享</button><button id="share-close" class="secondary">关闭</button></div></dialog>
+</body></html>

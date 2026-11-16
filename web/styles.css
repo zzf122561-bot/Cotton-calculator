@@ -39,6 +39,17 @@ body {
 }
 
 button, input { font: inherit; }
+[hidden] { display: none !important; }
+select { font: inherit; color: var(--text); background: var(--surface-solid); border: 1px solid var(--line); border-radius: 12px; min-height: 44px; padding: 0 12px; }
+.door-panel { max-width: 620px; margin: 24px auto; padding: 24px; }
+.door-form { display: grid; gap: 14px; }
+.door-form label { display: grid; gap: 7px; color: var(--muted); font-size: 12px; }
+.door-form input { height: 44px; color: var(--text); background: var(--surface-solid); border: 1px solid var(--line); border-radius: 12px; padding: 0 12px; }
+.session-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 14px; margin-bottom: 16px; }
+.session-toolbar .inline-status { flex-basis: 100%; }
+.legacy-ledger { margin-top: 16px; padding: 18px; }
+.reset-user-fields { display: grid; gap: 7px; }
+.cloud-new-user-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 button, a { -webkit-tap-highlight-color: transparent; }
 button { color: inherit; }
 

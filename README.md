@@ -1,3 +1,14 @@
+# Tool2：机采棉价格测算网页与后端
+
+本分支 `codex/derivative-machine-web` 保存用户于 2026-11-17 验收通过的 Tool2 `2.0.0-preview.2`。网页和后端位于 `web/`，完整目录与接受源码一致；版本对应关系见 [公开版本摘要](_manager/releases/derivative/machine-only/web/trial/factory-web-20261117-3ff575e/PUBLICATION.json)。
+
+- 当前产品说明：[web/factory/README.md](web/factory/README.md)。网页入口是 `web/factory/index.html`，Python 后端入口是 `web/api/factory_run.py`。
+- 当前管理登录刷新或重新打开后失效，并有从登录时起计算的一小时绝对期限。
+- 旧网页、旧 API 及下方 Android 说明为保留的项目资料；`web/api/Dockerfile` 属于旧产品，不是当前厂方服务的部署入口。
+- 本分支只同步已验收网页；Android 保持此前公开版本。部署交接、服务器运行参数、数据库、私有认证材料和二进制包由管理员在本地保存，不在本次公开同步中。
+
+## 保留的原 Android 项目说明
+
 # 皮棉成本换算
 
 一个完全离线的原生 Android 计算器，用于在籽棉收购价与皮棉最终入库成本之间双向换算。支持手摘棉、机采棉两套独立参数，并记住各自最后一次输入和计算方向。

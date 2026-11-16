@@ -30,6 +30,25 @@
       </div>
     </header>
 
+    <article class="card door-panel" id="door-panel">
+      <h2>用户门板</h2>
+      <form id="door-form" class="door-form">
+        <label><span>选择用户名</span><select id="door-user" required></select></label>
+        <label><span>门板密码</span><input id="door-password" type="password" autocomplete="current-password" maxlength="128" required></label>
+        <button class="action-button primary" id="door-submit" type="submit" disabled>验证并进入</button>
+      </form>
+      <p class="inline-status" id="door-status" role="status" aria-live="polite">正在连接服务器…</p>
+      <button class="text-button" id="door-retry" type="button">重新连接</button>
+    </article>
+    <div class="card session-toolbar" id="session-toolbar" hidden>
+      <span>当前用户：<strong id="current-user"></strong></span>
+      <button class="text-button" id="settings-tools" type="button" hidden>分享编辑与本人改密</button>
+      <button class="text-button" id="lock-settings" type="button" hidden>锁定编辑</button>
+      <button class="text-button" id="reload-cloud" type="button">重新读取配置</button>
+      <button class="text-button" id="switch-user" type="button">退出／切换用户</button>
+      <p class="inline-status" id="cloud-status" role="status" aria-live="polite"></p>
+    </div>
+    <div id="calculator-content" hidden>
     <section class="calculator-column" aria-label="换算输入">
       <article class="card price-card">
         <div class="section-heading">
@@ -119,6 +138,8 @@
         </section>
       </article>
     </section>
+    <details class="card legacy-ledger" id="legacy-ledger" hidden><summary>旧历史遗留区</summary><p id="legacy-count"></p><div id="legacy-history-list"></div></details>
+    </div>
   </main>
 
   <dialog class="sheet-dialog unlock-dialog" id="unlock-dialog" aria-labelledby="unlock-title">
@@ -128,7 +149,7 @@
         <span>密码</span>
         <input id="unlock-password" type="password" autocomplete="off" spellcheck="false">
       </label>
-      <p id="unlock-status" role="status" aria-live="polite">此入口只用于避免误触，不是安全保护。</p>
+      <p id="unlock-status" role="status" aria-live="polite">请输入当前用户的一级密码，或二级管理密码。</p>
       <div class="dialog-actions">
         <button class="dialog-button" id="unlock-cancel" type="button">取消</button>
         <button class="dialog-button primary" id="unlock-submit" type="submit">验证并进入</button>
@@ -153,49 +174,58 @@
 
   <dialog class="sheet-dialog admin-dialog" id="admin-dialog" aria-labelledby="admin-title">
     <div class="admin-layout">
-      <div class="dialog-title-row admin-title-row">
-        <div><small>仅限本机</small><h2 id="admin-title">本机管理员</h2></div>
-        <button class="dialog-button" id="admin-exit" type="button">退出并锁定</button>
-      </div>
-      <p class="admin-note">用于管理普通授权用户、自己的密码与分享模板。该入口只防误触，不构成强安全边界。</p>
-
+      <div class="dialog-title-row admin-title-row"><div><small>服务器权限</small><h2 id="admin-title">二级用户管理</h2></div><button class="dialog-button" id="admin-exit" type="button">退出</button></div>
       <section class="admin-section" id="admin-credential-section" aria-labelledby="admin-credential-title" aria-busy="false">
-        <div class="admin-section-heading">
-          <div><h3 id="admin-credential-title">修改管理员密码</h3><p>仅保存在当前浏览器的本站数据中，不会更改其他访客或整站的密码。</p></div>
-        </div>
+        <h3 id="admin-credential-title">修改二级密码</h3>
         <form class="admin-credential-form" id="admin-credential-form">
-          <label><span>当前管理员密码</span><input id="admin-current-password" type="password" autocomplete="current-password" spellcheck="false" required></label>
-          <label><span>新密码（8～128 个字符）</span><input id="admin-new-password" type="password" autocomplete="new-password" spellcheck="false" minlength="8" maxlength="128" required></label>
-          <label><span>确认新密码</span><input id="admin-confirm-password" type="password" autocomplete="new-password" spellcheck="false" minlength="8" maxlength="128" required></label>
-          <button class="action-button primary" type="submit">保存新密码</button>
+          <label><span>当前二级密码</span><input id="admin-current-password" type="password" autocomplete="current-password" required></label>
+          <label><span>新密码（8～128 个字符）</span><input id="admin-new-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label>
+          <label><span>确认新密码</span><input id="admin-confirm-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label>
+          <button class="action-button primary" type="submit">保存二级新密码</button>
         </form>
         <p class="inline-status" id="admin-credential-status" role="status" aria-live="polite"></p>
-        <p class="admin-note">清除本站浏览器数据后，本地新密码会丢失，入口将恢复静态包内置校验。</p>
       </section>
-
       <section class="admin-section" id="user-admin-section" aria-labelledby="users-title" aria-busy="false">
-        <div class="admin-section-heading">
-          <div><h3 id="users-title">普通授权用户</h3><p>新增或重置的密码不能与当前管理员密码或其他用户密码相同。</p></div>
-        </div>
-        <form class="new-user-form" id="new-user-form">
-          <label><span>名称</span><input id="new-user-name" type="text" maxlength="40" autocomplete="off" required></label>
-          <label><span>初始密码</span><input id="new-user-password" type="password" autocomplete="new-password" required></label>
+        <h3 id="users-title">用户管理</h3>
+        <form class="new-user-form cloud-new-user-form" id="new-user-form">
+          <label><span>用户名</span><input id="new-user-name" type="text" maxlength="40" required></label>
+          <label><span>门板密码</span><input id="new-user-door" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label>
+          <label><span>确认门板密码</span><input id="new-user-door-confirm" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label>
+          <label><span>一级密码</span><input id="new-user-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label>
+          <label><span>确认一级密码</span><input id="new-user-confirm" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label>
           <button class="action-button primary" type="submit">新增用户</button>
         </form>
         <p class="inline-status" id="user-admin-status" role="status" aria-live="polite"></p>
         <div class="admin-user-list" id="admin-user-list"></div>
       </section>
+    </div>
+  </dialog>
 
+  <dialog class="sheet-dialog admin-dialog" id="settings-dialog" aria-labelledby="settings-title">
+    <div class="admin-layout">
+      <div class="dialog-title-row"><h2 id="settings-title">一级设置</h2><button class="dialog-button" id="settings-close" type="button">返回计算</button></div>
+      <p>参数和分享模板使用同一份云端配置。编辑后请保存；其他会话变化时需重新读取。</p>
+      <button class="action-button primary" id="save-cloud" type="button">保存参数与分享模板</button>
       <section class="admin-section" aria-labelledby="template-title">
         <div class="admin-section-heading template-heading">
-          <div><h3 id="template-title">分享模板</h3><p>动态数值只能显隐和排序，静态文字可编辑。</p></div>
-          <div class="template-add-actions">
-            <button class="text-button" id="add-static-block" type="button">新增文字</button>
-            <button class="text-button" id="add-divider-block" type="button">新增分隔线</button>
-          </div>
+          <div><h3 id="template-title">分享模板</h3><p>动态数值来自当前计算结果，可显隐和排序；静态文字可编辑。</p></div>
+          <div class="template-add-actions"><button class="text-button" id="add-static-block" type="button">新增文字</button><button class="text-button" id="add-divider-block" type="button">新增分隔线</button></div>
         </div>
         <p class="inline-status" id="template-status" role="status" aria-live="polite"></p>
         <div class="template-list" id="template-list"></div>
+        <h3>实时最终文本预览</h3><pre class="share-preview" id="template-preview"></pre>
+        <p class="inline-status" id="settings-cloud-status" role="status" aria-live="polite"></p>
+      </section>
+      <section class="admin-section" id="own-password-section" aria-busy="false">
+        <h3>修改本人密码</h3>
+        <form class="admin-credential-form" id="own-password-form">
+          <label><span>密码类型</span><select id="own-password-kind"><option value="door">门板密码</option><option value="settings">一级密码</option></select></label>
+          <label><span>对应原密码</span><input id="own-current-password" type="password" autocomplete="current-password" required></label>
+          <label><span>新密码</span><input id="own-new-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label>
+          <label><span>确认新密码</span><input id="own-confirm-password" type="password" autocomplete="new-password" minlength="8" maxlength="128" required></label>
+          <button class="action-button primary" type="submit">保存本人新密码</button>
+        </form>
+        <p class="inline-status" id="own-password-status" role="status" aria-live="polite"></p>
       </section>
     </div>
   </dialog>
@@ -206,7 +236,7 @@
         <div><small>快速上手</small><h2 id="guide-title">使用说明</h2></div>
         <button class="close-button" id="guide-close" type="button" aria-label="关闭使用说明">×</button>
       </div>
-      <p class="guide-intro">页面只保留机采棉换算，数据留在当前浏览器。</p>
+      <p class="guide-intro">机采棉参数和分享模板按用户在服务器同步；历史、对比和主题留在当前浏览器。</p>
       <ol class="guide-steps">
         <li class="guide-copy"><b>输入已知价格</b><p>修改籽棉价会换算皮棉价；修改皮棉价会反算籽棉价。</p></li>
         <li class="guide-copy"><b>核对计算方向</b><p>“计算依据”标记会跟随最后实际修改的价格，不会因单纯聚焦而切换。</p></li>

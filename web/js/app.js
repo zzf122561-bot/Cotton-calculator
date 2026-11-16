@@ -1,6 +1,6 @@
-import { FIELDS, MACHINE_DEFAULTS, editState } from "./calculator.js";
-import { AccessGate, verifyPasswordCredential } from "./access-control.js";
-import { ADMIN_CREDENTIAL_STORAGE_KEY, changeAdminPassword, loadAdminCredential } from "./admin-credential.js";
+import { FIELDS, MACHINE_DEFAULTS, createDefaultState, recalculate, editState } from "./calculator.js";
+import { TenTapTrigger } from "./access-control.js";
+import { CloudClient, OperationGate, migrateCloudStorage } from "./cloud-client.js";
 import { loadLedger, saveLedger } from "./ledger-storage.js";
 import {
   HISTORY_PAGE_SIZE,
@@ -18,49 +18,30 @@ import {
   addStaticTemplateBlock,
   copyShareText,
   invokeSystemShare,
-  loadShareTemplate,
+  createDefaultShareTemplate,
   moveTemplateBlock,
   removeTemplateBlock,
   renderShareText,
-  saveShareTemplate,
   updateTemplateBlock,
 } from "./sharing.js";
-import { loadState, saveState } from "./storage.js";
 import { applyTheme, loadTheme, saveTheme } from "./theme.js";
-import {
-  authenticateAuthorizedUser,
-  createAuthorizedUser,
-  findPasswordConflict,
-  initializeAuthorizedUsers,
-  resetAuthorizedUserPassword,
-  saveAuthorizedUsers,
-  UserMutationGate,
-} from "./users.js";
-
 const previewTheme = new URLSearchParams(window.location.search).get("theme");
 if (previewTheme === "light" || previewTheme === "dark") {
   document.documentElement.dataset.theme = previewTheme;
 }
 
-let appState = loadState();
+const api = new CloudClient();
+const tapTrigger = new TenTapTrigger();
+const userMutationGate = new OperationGate();
+const legacyLedger = loadLedger();
+let appState = createDefaultState();
 let themeState = applyTheme(document.documentElement, loadTheme());
-let { records, comparisonIds } = loadLedger();
-let authorizedUsers = initializeAuthorizedUsers();
-let shareTemplate = loadShareTemplate();
-let activeAdminCredential = loadAdminCredential();
+let records = [], comparisonIds = [], authorizedUsers = [];
+let shareTemplate = createDefaultShareTemplate();
+let configVersion = 0, configDirty = false, configReadSequence = 0, cooldownUntil = 0;
 let activeRecordsTab = "history";
 let historyRenderLimit = HISTORY_PAGE_SIZE;
 let activeShareRecord = null;
-const userMutationGate = new UserMutationGate();
-
-const accessGate = new AccessGate({
-  authenticate: async (password) => {
-    activeAdminCredential = loadAdminCredential();
-    if (activeAdminCredential.credential
-      && await verifyPasswordCredential(password, activeAdminCredential.credential)) return { type: "admin" };
-    return authenticateAuthorizedUser(password, authorizedUsers);
-  },
-});
 
 const parameterMount = document.getElementById("parameter-mount");
 const unlockDialog = document.getElementById("unlock-dialog");
@@ -73,6 +54,8 @@ const guideDialog = document.getElementById("guide-dialog");
 const themeDialog = document.getElementById("theme-dialog");
 const shareDialog = document.getElementById("share-dialog");
 const adminDialog = document.getElementById("admin-dialog");
+const settingsDialog = document.getElementById("settings-dialog");
+const cloudStatus = document.getElementById("cloud-status");
 const adminCredentialForm = document.getElementById("admin-credential-form");
 const adminCredentialStatus = document.getElementById("admin-credential-status");
 const customColor = document.getElementById("custom-color");
@@ -107,11 +90,15 @@ function element(tag, className, text) {
 function setStatus(node, message, isError = false) {
   node.textContent = message;
   node.classList.toggle("is-error", isError);
+  if (node === cloudStatus) {
+    const mirror = document.getElementById("settings-cloud-status");
+    mirror.textContent = message; mirror.classList.toggle("is-error", isError);
+  }
 }
 
 function commit(state) {
   appState = state;
-  saveState(appState);
+  if (api.role === "settings") configDirty = true;
   render();
 }
 
@@ -186,9 +173,13 @@ function render() {
     button.setAttribute("aria-pressed", String(button.dataset.palette === themeState.palette));
   }
   customColor.value = themeState.customColor;
+  document.getElementById("settings-tools").hidden = api.role !== "settings";
+  document.getElementById("lock-settings").hidden = api.role !== "settings";
+  for (const id of ["seedCottonPrice", "lintPrice"]) document.getElementById(id).disabled = !api.user;
+  updateTemplatePreview();
   const resultAvailable = Boolean(appState.result) && appState.errors.length === 0;
   for (const id of ["save-record", "compare-current", "share-current"]) {
-    document.getElementById(id).disabled = !resultAvailable;
+    document.getElementById(id).disabled = !resultAvailable || !api.user;
   }
 }
 
@@ -205,24 +196,10 @@ function closeOnBackdrop(dialog) {
 }
 
 function renderUnlockStatus() {
-  const remaining = accessGate.cooldownRemainingSeconds();
-  if (remaining > 0) {
-    unlockStatus.textContent = `尝试次数过多，请等待 ${remaining} 秒。`;
-    unlockStatus.classList.add("is-error");
-    unlockPassword.disabled = true;
-    unlockSubmit.disabled = true;
-    return;
-  }
-
-  unlockPassword.disabled = false;
-  unlockSubmit.disabled = false;
-  if (unlockFeedback?.status === "incorrect") {
-    unlockStatus.textContent = `密码不正确，还可尝试 ${unlockFeedback.attemptsRemaining} 次。`;
-    unlockStatus.classList.add("is-error");
-  } else {
-    unlockStatus.textContent = "此入口只用于避免误触，不是安全保护。";
-    unlockStatus.classList.remove("is-error");
-  }
+  const remaining = Math.ceil(Math.max(0, cooldownUntil - Date.now()) / 1000);
+  unlockPassword.disabled = remaining > 0;
+  unlockSubmit.disabled = remaining > 0;
+  setStatus(unlockStatus, remaining > 0 ? "请等待 " + remaining + " 秒后再验证。" : (unlockFeedback || "请输入当前用户的一级密码，或二级管理密码。"), Boolean(remaining || unlockFeedback));
 }
 
 function stopCooldownTimer() {
@@ -239,12 +216,13 @@ function openUnlockDialog() {
   stopCooldownTimer();
   cooldownTimer = window.setInterval(() => {
     renderUnlockStatus();
-    if (accessGate.cooldownRemainingSeconds() === 0) stopCooldownTimer();
+    if (Date.now() >= cooldownUntil) stopCooldownTimer();
   }, 250);
 }
 
 function persistLedger(successMessage, { statusNode = recordActionStatus, restoreFocus = null } = {}) {
-  const persisted = saveLedger(records, comparisonIds);
+  if (!api.user) return;
+  const persisted = saveLedger(records, comparisonIds, undefined, api.user.id);
   setStatus(
     statusNode,
     persisted ? successMessage : `${successMessage}；浏览器存储失败，本次仅保留在当前页面。`,
@@ -420,37 +398,29 @@ function currentSnapshotForSharing() {
 function renderAdminUsers() {
   const list = document.getElementById("admin-user-list");
   list.replaceChildren();
-  if (authorizedUsers.length === 0) list.append(element("p", "empty-state", "当前没有普通授权用户，管理员入口仍可使用。"));
-  for (const [userIndex, user] of authorizedUsers.entries()) {
+  if (!authorizedUsers.length) list.append(element("p", "empty-state", "当前没有可用用户，可新增用户。"));
+  for (const [index, user] of authorizedUsers.entries()) {
     const row = element("article", "admin-user-row");
     row.dataset.userId = user.id;
-    const context = `用户“${user.name}”（列表第 ${userIndex + 1} 位）`;
-    const state = element("span", `user-state ${user.enabled ? "enabled" : "disabled"}`, user.enabled ? "已启用" : "已停用");
+    const context = "用户“" + user.name + "”（列表第 " + (index + 1) + " 位）";
     const nameLabel = element("label", "admin-inline-field");
     nameLabel.append(element("span", "", "名称"));
-    const nameInput = element("input");
-    nameInput.type = "text";
-    nameInput.maxLength = 40;
-    nameInput.value = user.name;
-    nameInput.dataset.userName = user.id;
-    nameInput.setAttribute("aria-label", `${context}的名称`);
-    nameLabel.append(nameInput);
-    const passwordLabel = element("label", "admin-inline-field");
-    passwordLabel.append(element("span", "", "新密码"));
-    const passwordInput = element("input");
-    passwordInput.type = "password";
-    passwordInput.autocomplete = "new-password";
-    passwordInput.dataset.userPassword = user.id;
-    passwordInput.setAttribute("aria-label", `为${context}设置新密码`);
-    passwordLabel.append(passwordInput);
+    const name = element("input"); name.value = user.name; name.maxLength = 40; name.dataset.userName = user.id;
+    name.setAttribute("aria-label", context + "的名称"); nameLabel.append(name);
+    const reset = element("div", "reset-user-fields");
+    const kind = element("select"); kind.dataset.userKind = user.id; kind.setAttribute("aria-label", context + "要重置的密码");
+    for (const [value, text] of [["door", "门板密码"], ["settings", "一级密码"]]) { const option = element("option", "", text); option.value = value; kind.append(option); }
+    reset.append(kind);
+    for (const [key, text] of [["userPassword", "新密码"], ["userConfirm", "确认新密码"]]) {
+      const label = element("label", "admin-inline-field"); label.append(element("span", "", text));
+      const input = element("input"); input.type = "password"; input.autocomplete = "new-password"; input.maxLength = 128;
+      input.dataset[key] = user.id; input.setAttribute("aria-label", context + "的" + text); label.append(input); reset.append(label);
+    }
     const actions = element("div", "admin-row-actions");
-    actions.append(
-      actionButton("保存名称", "rename-user", user.id, "", `保存${context}的名称`),
-      actionButton(user.enabled ? "停用" : "启用", "toggle-user", user.id, "", `${user.enabled ? "停用" : "启用"}${context}`),
-      actionButton("重置密码", "reset-user", user.id, "", `重置${context}的密码`),
-      actionButton("删除", "delete-user", user.id, "danger", `删除${context}`),
-    );
-    row.append(state, nameLabel, passwordLabel, actions);
+    for (const [label, action] of [["保存名称", "rename-user"], [user.enabled ? "停用" : "启用", "toggle-user"], ["重置所选密码", "reset-user"], ["删除", "delete-user"]]) {
+      actions.append(actionButton(label, action, user.id, action === "delete-user" ? "danger" : "", context + label));
+    }
+    row.append(element("span", "user-state " + (user.enabled ? "enabled" : "disabled"), user.enabled ? "已启用" : "已停用"), nameLabel, reset, actions);
     list.append(row);
   }
 }
@@ -511,93 +481,173 @@ function renderTemplateEditor() {
   });
 }
 
-function renderAdmin() {
-  renderAdminUsers();
-  renderTemplateEditor();
-}
-
-function persistUsers(message, restoreFocus = null) {
-  const saved = saveAuthorizedUsers(authorizedUsers);
-  setStatus(document.getElementById("user-admin-status"), saved ? message : `${message}；浏览器存储失败。`, !saved);
-  renderAdminUsers();
-  restoreFocus?.();
+function updateTemplatePreview() {
+  const node = document.getElementById("template-preview");
+  if (node) node.textContent = appState.result && !appState.errors.length ? renderShareText(currentSnapshotForSharing(), shareTemplate) : "当前计算无有效结果，请核对输入。";
 }
 
 function persistTemplate(message, restoreFocus = null) {
-  const saved = saveShareTemplate(shareTemplate);
-  setStatus(document.getElementById("template-status"), saved ? message : `${message}；浏览器存储失败。`, !saved);
-  renderTemplateEditor();
-  restoreFocus?.();
-}
-
-function passwordConflictMessage(conflict) {
-  if (conflict?.type === "admin") return "普通用户密码不能与管理员密码相同。";
-  if (conflict?.type === "user") return `普通用户密码不能与用户“${conflict.name}”的密码相同。`;
-  if (conflict?.type === "unavailable") return "管理员校验材料不可用，暂时无法检查密码冲突。";
-  return "";
-}
-
-async function findCurrentPasswordConflict(password, users, options = {}) {
-  const current = loadAdminCredential();
-  if (!current.credential) return { type: "unavailable" };
-  return findPasswordConflict(password, users, {
-    ...options,
-    verifyAdmin: (candidate, cryptoProvider) => verifyPasswordCredential(candidate, current.credential, cryptoProvider),
-  });
+  if (api.role !== "settings") return;
+  configDirty = true;
+  setStatus(document.getElementById("template-status"), message + " 请保存云端配置。");
+  renderTemplateEditor(); updateTemplatePreview(); restoreFocus?.();
 }
 
 function setUserMutationBusy(pending) {
-  for (const id of ["user-admin-section", "admin-credential-section"]) {
-    const section = document.getElementById(id);
-    section.setAttribute("aria-busy", String(pending));
-    for (const control of section.querySelectorAll("input, button")) control.disabled = pending;
+  for (const id of ["user-admin-section", "admin-credential-section", "own-password-section"]) {
+    const section = document.getElementById(id); section.setAttribute("aria-busy", String(pending));
+    for (const control of section.querySelectorAll("input, select, button")) control.disabled = pending;
   }
   document.getElementById("admin-exit").disabled = pending;
 }
 
-function reportUserMutationBusy() {
-  setStatus(document.getElementById("user-admin-status"), "正在处理另一项用户操作，请稍候。", true);
+async function refreshAdminUsers() {
+  authorizedUsers = await api.request("/admin/users");
+  renderAdminUsers();
 }
+
+async function refreshConfig(force = false) {
+  if (!api.user) return false;
+  const uid = api.user.id, sequence = ++configReadSequence;
+  try {
+    const data = await api.request("/me/config");
+    if (sequence !== configReadSequence || api.user?.id !== uid) return false;
+    if (configDirty && !force) {
+      setStatus(cloudStatus, data.version !== configVersion ? "配置已在其他会话变化；请重新读取后编辑，未覆盖你的草稿。" : "当前有未保存草稿，请保存或重新读取。", data.version !== configVersion);
+      return false;
+    }
+    appState = recalculate(data.machine); shareTemplate = data.template; configVersion = data.version; configDirty = false;
+    setStatus(cloudStatus, "已读取最新配置。");
+    render(); if (settingsDialog.open) renderTemplateEditor();
+    return true;
+  } catch (error) {
+    setStatus(cloudStatus, error.message, true);
+    if (error.status === 401 || error.status === 403) { api.lock(); removeParameterCard(); if (settingsDialog.open) settingsDialog.close(); }
+    return false;
+  }
+}
+
+function showDoor() {
+  configReadSequence++; api.lock(); tapTrigger.reset(); removeParameterCard();
+  if (adminDialog.open) adminDialog.close();
+  if (settingsDialog.open) settingsDialog.close();
+  if (shareDialog.open) shareDialog.close();
+  appState = createDefaultState(); shareTemplate = createDefaultShareTemplate(); records = []; comparisonIds = []; configDirty = false;
+  document.getElementById("calculator-content").hidden = true;
+  document.getElementById("session-toolbar").hidden = true;
+  document.getElementById("door-panel").hidden = false;
+  document.getElementById("door-submit").disabled = true;
+  document.getElementById("door-password").value = "";
+  recordNote.value = ""; historyQuery.value = ""; render(); renderLedger();
+}
+
+function renderLegacy() {
+  const list = document.getElementById("legacy-history-list"); list.replaceChildren();
+  document.getElementById("legacy-ledger").hidden = !legacyLedger.records.length;
+  document.getElementById("legacy-count").textContent = legacyLedger.records.length + " 条旧历史，" + legacyLedger.comparisonIds.length + " 条旧对比链接；未分配给新用户。";
+  for (const record of legacyLedger.records) {
+    const row = element("article", "record-row");
+    row.append(element("p", "", (record.note || "旧测算") + " · " + formatRecordDateTime(record.savedAt)));
+    const share = actionButton("分享旧快照", "legacy-share", record.id); share.addEventListener("click", () => openSharePreview(record));
+    row.append(share); list.append(row);
+  }
+}
+
+async function enterUser() {
+  if (!api.user) return showDoor();
+  if (!await refreshConfig(true)) {
+    const message = cloudStatus.textContent; showDoor();
+    setStatus(document.getElementById("door-status"), message, true);
+    return;
+  }
+  ({ records, comparisonIds } = loadLedger(undefined, api.user.id));
+  document.getElementById("door-panel").hidden = true;
+  document.getElementById("calculator-content").hidden = false;
+  document.getElementById("session-toolbar").hidden = false;
+  document.getElementById("current-user").textContent = api.user.name;
+  historyRenderLimit = HISTORY_PAGE_SIZE;
+  renderLedger(); renderLegacy();
+}
+
+async function startCloud() {
+  showDoor();
+  try {
+    await api.initialize();
+    const users = await api.request("/users");
+    const select = document.getElementById("door-user"); select.replaceChildren();
+    for (const user of users) { const option = element("option", "", user.name); option.value = user.id; select.append(option); }
+    document.getElementById("door-submit").disabled = !users.length;
+    setStatus(document.getElementById("door-status"), users.length ? "请选择用户名并输入门板密码。" : "暂时没有启用用户，请联系管理员。");
+    if (api.user) await enterUser();
+  } catch (error) { setStatus(document.getElementById("door-status"), error.message, true); document.getElementById("door-submit").disabled = true; }
+}
+
+async function leaveSession() {
+  let message = "";
+  showDoor();
+  try { await api.logout(); } catch (error) { message = error.message + " 页面已清空，服务器退出待联网完成。"; }
+  showDoor();
+  if (message) setStatus(document.getElementById("door-status"), message, true);
+  else await startCloud();
+}
+
+document.getElementById("door-retry").addEventListener("click", startCloud);
+document.getElementById("switch-user").addEventListener("click", leaveSession);
+document.getElementById("door-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const input = document.getElementById("door-password"), password = input.value; input.value = "";
+  document.getElementById("door-submit").disabled = true;
+  try { await api.login(document.getElementById("door-user").value, password); await enterUser(); }
+  catch (error) { setStatus(document.getElementById("door-status"), error.message, true); }
+  finally { document.getElementById("door-submit").disabled = false; }
+});
+document.getElementById("reload-cloud").addEventListener("click", () => refreshConfig(true));
+document.getElementById("save-cloud").addEventListener("click", async () => {
+  if (api.role !== "settings" || !api.user || !appState.result || appState.errors.length) return;
+  const button = document.getElementById("save-cloud"); button.disabled = true;
+  try {
+    const machine = Object.fromEntries([...Object.keys(FIELDS).map((field) => [field, appState[field]]), ["basis", appState.basis]]);
+    const result = await api.request("/me/config", "PUT", { version: configVersion, machine, template: shareTemplate });
+    configVersion = result.version; configDirty = false; setStatus(cloudStatus, "参数与分享模板已保存到服务器。");
+  } catch (error) { setStatus(cloudStatus, error.message, true); if (error.status === 401 || error.status === 403) { api.lock(); removeParameterCard(); settingsDialog.close(); render(); } }
+  finally { button.disabled = false; }
+});
+document.getElementById("settings-tools").addEventListener("click", () => { if (api.role === "settings") { renderTemplateEditor(); updateTemplatePreview(); settingsDialog.showModal(); } });
+document.getElementById("settings-close").addEventListener("click", () => settingsDialog.close());
+settingsDialog.addEventListener("close", () => document.getElementById("own-password-form").reset());
+document.getElementById("lock-settings").addEventListener("click", () => { api.lock(); removeParameterCard(); if (settingsDialog.open) settingsDialog.close(); render(); });
+window.addEventListener("focus", async () => {
+  if (!api.user) return;
+  try {
+    const session = await api.request("/session");
+    if (!session.user || session.user.id !== api.user.id) { api.clear(); await startCloud(); return; }
+    await refreshConfig();
+  } catch (error) { setStatus(cloudStatus, error.message, true); }
+});
+window.addEventListener("offline", () => { setStatus(cloudStatus, "网络已断开；无法登录、解锁或保存云端配置。", true); });
 
 for (const input of document.querySelectorAll("[data-field]")) attachInput(input);
 
 document.getElementById("settings-trigger").addEventListener("click", () => {
-  if (accessGate.registerTap()) openUnlockDialog();
+  if (api.role !== "admin" && tapTrigger.registerTap()) openUnlockDialog();
 });
-
 unlockForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (accessGate.cooldownRemainingSeconds() > 0 || !unlockPassword.value) return;
-  const candidate = unlockPassword.value;
-  unlockPassword.value = "";
-  unlockPassword.disabled = true;
-  unlockSubmit.disabled = true;
-  unlockSubmit.textContent = "正在校验";
+  if (Date.now() < cooldownUntil || !unlockPassword.value || unlockSubmit.disabled) return;
+  const candidate = unlockPassword.value; unlockPassword.value = "";
+  unlockPassword.disabled = true; unlockSubmit.disabled = true;
   try {
-    unlockFeedback = await accessGate.submit(candidate);
-  } finally {
-    unlockSubmit.textContent = "验证并进入";
-  }
-  if (unlockFeedback.status === "unlocked") {
-    stopCooldownTimer();
+    const role = await api.unlock(candidate);
     unlockDialog.close();
-    if (unlockFeedback.principal.type === "admin") {
-      renderAdmin();
-      adminDialog.showModal();
-    } else {
-      createParameterCard();
-      render();
-    }
-    return;
-  }
-  renderUnlockStatus();
-  if (accessGate.cooldownRemainingSeconds() > 0 && cooldownTimer === null) {
-    cooldownTimer = window.setInterval(() => {
-      renderUnlockStatus();
-      if (accessGate.cooldownRemainingSeconds() === 0) stopCooldownTimer();
-    }, 250);
-  }
-  if (!unlockPassword.disabled) unlockPassword.focus();
+    if (role === "admin") { removeParameterCard(); render(); await refreshAdminUsers(); adminDialog.showModal(); }
+    else if (await refreshConfig(true)) { createParameterCard(); render(); }
+    else { api.lock(); render(); }
+  } catch (error) {
+    unlockFeedback = error.message;
+    if (error.seconds) cooldownUntil = Date.now() + error.seconds * 1000;
+    removeParameterCard(); render(); renderUnlockStatus();
+    stopCooldownTimer(); cooldownTimer = window.setInterval(() => { renderUnlockStatus(); if (Date.now() >= cooldownUntil) stopCooldownTimer(); }, 250);
+  } finally { if (Date.now() >= cooldownUntil) { unlockPassword.disabled = false; unlockSubmit.disabled = false; } }
 });
 
 document.getElementById("unlock-cancel").addEventListener("click", () => unlockDialog.close());
@@ -719,188 +769,73 @@ document.getElementById("system-share").addEventListener("click", async () => {
   if (outcome.status === "error") setStatus(status, "系统分享失败，测算页面不受影响。", true);
 });
 
-document.getElementById("admin-exit").addEventListener("click", () => adminDialog.close());
-adminDialog.addEventListener("cancel", (event) => {
-  if (userMutationGate.userMutationPending) event.preventDefault();
-});
-adminDialog.addEventListener("close", () => {
-  adminCredentialForm.reset();
-  setStatus(adminCredentialStatus, "");
-  accessGate.lock();
-  removeParameterCard();
-  render();
-});
+document.getElementById("admin-exit").addEventListener("click", leaveSession);
+adminDialog.addEventListener("cancel", (event) => { if (userMutationGate.userMutationPending) event.preventDefault(); });
+adminDialog.addEventListener("close", () => { adminCredentialForm.reset(); document.getElementById("new-user-form").reset(); api.lock(); removeParameterCard(); render(); });
 adminCredentialForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  if (!adminDialog.open || accessGate.principal?.type !== "admin") return;
-  if (userMutationGate.userMutationPending) {
-    setStatus(adminCredentialStatus, "正在处理另一项密码操作，请稍候。", true);
-    return;
-  }
-  const currentInput = document.getElementById("admin-current-password");
-  const nextInput = document.getElementById("admin-new-password");
-  const confirmInput = document.getElementById("admin-confirm-password");
-  const currentPassword = currentInput.value;
-  const newPassword = nextInput.value;
-  const confirmation = confirmInput.value;
-  setStatus(adminCredentialStatus, "正在验证并保存…");
+  event.preventDefault(); if (api.role !== "admin" || !adminDialog.open) return;
+  const body = { currentPassword: document.getElementById("admin-current-password").value, newPassword: document.getElementById("admin-new-password").value, confirmation: document.getElementById("admin-confirm-password").value };
   await userMutationGate.run(async () => {
-    let result;
-    try {
-      result = await changeAdminPassword({
-        currentPassword,
-        newPassword,
-        confirmation,
-        users: authorizedUsers,
-        expectedSerialized: activeAdminCredential.serialized,
-      });
-    } catch {
-      result = { status: "creation-failure" };
-    } finally {
-      adminCredentialForm.reset();
-    }
-    if (result.status === "changed") {
-      activeAdminCredential = { status: "stored", credential: result.credential, serialized: result.serialized };
-      setStatus(adminCredentialStatus, "管理员密码已在当前浏览器保存。退出后需用新密码重新解锁。");
-      return;
-    }
-    const messages = {
-      "missing-current": "请输入当前管理员密码。",
-      "invalid-length": "新密码需为 8～128 个字符。",
-      mismatch: "两次输入的新密码不一致。",
-      "incorrect-current": "当前管理员密码不正确。",
-      "same-password": "新密码不能与当前管理员密码相同。",
-      "storage-unavailable": "浏览器存储不可用或校验材料损坏，密码未更改。",
-      "changed-concurrently": "管理员密码已在其他页面变化，请退出并重新解锁后再试。",
-      "creation-failure": "无法生成新校验材料，密码未更改。",
-      "storage-failure": "浏览器存储失败，密码未更改。",
-    };
-    const message = result.status === "user-conflict"
-      ? `新密码不能与普通用户“${result.userName}”的密码相同。`
-      : messages[result.status] ?? "密码未更改，请重试。";
-    setStatus(adminCredentialStatus, message, true);
+    try { await api.request("/admin/password", "POST", body); api.clear(); await startCloud(); setStatus(document.getElementById("door-status"), "二级密码已更改，请重新进入。"); }
+    catch (error) { setStatus(adminCredentialStatus, error.message, true); }
+    finally { adminCredentialForm.reset(); }
   }, setUserMutationBusy);
-  if (adminDialog.open) currentInput.focus();
 });
-window.addEventListener("storage", (event) => {
-  if (event.key !== ADMIN_CREDENTIAL_STORAGE_KEY && event.key !== null) return;
-  activeAdminCredential = loadAdminCredential();
-  if (accessGate.principal?.type === "admin") {
-    if (adminDialog.open) adminDialog.close();
-    else accessGate.lock();
-  }
+document.getElementById("own-password-form").addEventListener("submit", async (event) => {
+  event.preventDefault(); if (api.role !== "settings") return;
+  const form = event.currentTarget, status = document.getElementById("own-password-status");
+  const body = { currentPassword: document.getElementById("own-current-password").value, newPassword: document.getElementById("own-new-password").value, confirmation: document.getElementById("own-confirm-password").value };
+  const kind = document.getElementById("own-password-kind").value;
+  await userMutationGate.run(async () => {
+    try { await api.request("/me/password/" + kind, "POST", body); api.clear(); await startCloud(); setStatus(document.getElementById("door-status"), "密码已更改，旧会话已撤销，请重新登录。"); }
+    catch (error) { setStatus(status, error.message, true); }
+    finally { form.reset(); }
+  }, setUserMutationBusy);
 });
 document.getElementById("new-user-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  if (userMutationGate.userMutationPending) {
-    reportUserMutationBusy();
-    return;
-  }
-  const name = document.getElementById("new-user-name");
-  const password = document.getElementById("new-user-password");
-  let focusAfterRelease = null;
+  event.preventDefault(); if (api.role !== "admin" || userMutationGate.userMutationPending) return;
+  const body = { name: document.getElementById("new-user-name").value,
+    doorPassword: document.getElementById("new-user-door").value, doorConfirmation: document.getElementById("new-user-door-confirm").value,
+    settingsPassword: document.getElementById("new-user-password").value, settingsConfirmation: document.getElementById("new-user-confirm").value };
   await userMutationGate.run(async () => {
-    try {
-      const candidate = password.value;
-      const conflict = await findCurrentPasswordConflict(candidate, authorizedUsers);
-      if (conflict) {
-        password.value = "";
-        setStatus(document.getElementById("user-admin-status"), passwordConflictMessage(conflict), true);
-        focusAfterRelease = password;
-        return;
-      }
-      const user = await createAuthorizedUser(name.value, candidate);
-      authorizedUsers = [...authorizedUsers, user];
-      name.value = "";
-      password.value = "";
-      persistUsers("普通授权用户已新增。", () => focusElement(`[data-user-name="${CSS.escape(user.id)}"]`, document.getElementById("new-user-name")));
-    } catch {
-      password.value = "";
-      setStatus(document.getElementById("user-admin-status"), "名称和密码不能为空。", true);
-      focusAfterRelease = password;
-    }
+    try { await api.request("/admin/users", "POST", body); event.target.reset(); await refreshAdminUsers(); setStatus(document.getElementById("user-admin-status"), "用户已在服务器创建。"); }
+    catch (error) { setStatus(document.getElementById("user-admin-status"), error.message, true); }
+    finally { for (const input of event.target.querySelectorAll('input[type="password"]')) input.value = ""; }
   }, setUserMutationBusy);
-  focusAfterRelease?.focus();
 });
 document.getElementById("admin-user-list").addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-action]");
-  if (!button) return;
-  if (userMutationGate.userMutationPending) {
-    reportUserMutationBusy();
-    return;
-  }
-  const id = button.dataset.recordId;
-  const index = authorizedUsers.findIndex((user) => user.id === id);
-  if (index < 0) return;
-  const user = authorizedUsers[index];
-  if (button.dataset.action === "delete-user") {
-    const neighborId = authorizedUsers[index + 1]?.id ?? authorizedUsers[index - 1]?.id ?? null;
-    authorizedUsers = authorizedUsers.filter((item) => item.id !== id);
-    persistUsers("用户已删除。", () => neighborId
-      ? focusElement(`#admin-user-list [data-user-id="${CSS.escape(neighborId)}"] [data-action="delete-user"]`, document.getElementById("new-user-name"))
-      : document.getElementById("new-user-name").focus());
-    return;
-  }
-  if (button.dataset.action === "toggle-user") {
-    authorizedUsers = authorizedUsers.map((item) => item.id === id ? { ...item, enabled: !item.enabled } : item);
-    persistUsers(user.enabled ? "用户已停用。" : "用户已启用。", () => focusElement(
-      `#admin-user-list [data-user-id="${CSS.escape(id)}"] [data-action="toggle-user"]`,
-      document.getElementById("new-user-name"),
-    ));
-    return;
-  }
-  if (button.dataset.action === "rename-user") {
-    const input = document.querySelector(`[data-user-name="${CSS.escape(id)}"]`);
-    const name = input.value.trim();
-    if (!name) {
-      setStatus(document.getElementById("user-admin-status"), "用户名称不能为空。", true);
-      return;
-    }
-    authorizedUsers = authorizedUsers.map((item) => item.id === id ? { ...item, name: name.slice(0, 40) } : item);
-    persistUsers("用户名称已保存。", () => focusElement(
-      `#admin-user-list [data-user-id="${CSS.escape(id)}"] [data-action="rename-user"]`,
-      document.getElementById("new-user-name"),
-    ));
-    return;
-  }
-  if (button.dataset.action === "reset-user") {
-    const input = document.querySelector(`[data-user-password="${CSS.escape(id)}"]`);
-    if (!input.value) {
-      setStatus(document.getElementById("user-admin-status"), "请输入新密码。", true);
-      return;
-    }
-    const candidate = input.value;
-    let focusAfterRelease = null;
-    await userMutationGate.run(async () => {
-      const conflict = await findCurrentPasswordConflict(candidate, authorizedUsers, { excludeUserId: id });
-      input.value = "";
-      if (conflict) {
-        setStatus(document.getElementById("user-admin-status"), passwordConflictMessage(conflict), true);
-        focusAfterRelease = input;
-        return;
-      }
-      const updated = await resetAuthorizedUserPassword(user, candidate);
-      authorizedUsers = authorizedUsers.map((item) => item.id === id ? updated : item);
-      persistUsers("用户密码已重置。", () => focusElement(
-        `#admin-user-list [data-user-id="${CSS.escape(id)}"] [data-action="reset-user"]`,
-        document.getElementById("new-user-name"),
-      ));
-    }, setUserMutationBusy);
-    focusAfterRelease?.focus();
-  }
+  if (!button || api.role !== "admin" || userMutationGate.userMutationPending) return;
+  const id = button.dataset.recordId, user = authorizedUsers.find((item) => item.id === id);
+  if (!user) return;
+  const row = button.closest(".admin-user-row");
+  await userMutationGate.run(async () => {
+    try {
+      const path = "/admin/users/" + encodeURIComponent(id);
+      if (button.dataset.action === "delete-user") await api.request(path, "DELETE");
+      if (button.dataset.action === "toggle-user") await api.request(path, "PATCH", { enabled: !user.enabled });
+      if (button.dataset.action === "rename-user") await api.request(path, "PATCH", { name: row.querySelector("[data-user-name]").value });
+      if (button.dataset.action === "reset-user") await api.request(path + "/password/" + row.querySelector("[data-user-kind]").value, "POST", { newPassword: row.querySelector("[data-user-password]").value, confirmation: row.querySelector("[data-user-confirm]").value });
+      await refreshAdminUsers(); setStatus(document.getElementById("user-admin-status"), "用户设置已在服务器更新。");
+    } catch (error) { setStatus(document.getElementById("user-admin-status"), error.message, true); }
+    finally { for (const input of row.querySelectorAll('input[type="password"]')) input.value = ""; }
+  }, setUserMutationBusy);
 });
 
 document.getElementById("add-static-block").addEventListener("click", () => {
+  if (api.role !== "settings") return;
   shareTemplate = addStaticTemplateBlock(shareTemplate);
   const blockId = shareTemplate.blocks.at(-1).id;
   persistTemplate("静态文字已新增。", () => focusElement(`[data-template-text="${CSS.escape(blockId)}"]`, document.getElementById("add-static-block")));
 });
 document.getElementById("add-divider-block").addEventListener("click", () => {
+  if (api.role !== "settings") return;
   shareTemplate = addDividerTemplateBlock(shareTemplate);
   const blockId = shareTemplate.blocks.at(-1).id;
   persistTemplate("分隔线已新增。", () => focusTemplateControl(blockId, '[data-action="remove-block"]'));
 });
 document.getElementById("template-list").addEventListener("click", (event) => {
+  if (api.role !== "settings") return;
   const button = event.target.closest("button[data-action]");
   if (!button) return;
   const id = button.dataset.recordId;
@@ -921,6 +856,7 @@ document.getElementById("template-list").addEventListener("click", (event) => {
   });
 });
 document.getElementById("template-list").addEventListener("change", (event) => {
+  if (api.role !== "settings") return;
   if (event.target.matches("[data-template-visible]")) {
     const id = event.target.dataset.templateVisible;
     shareTemplate = updateTemplateBlock(shareTemplate, id, { visible: event.target.checked });
@@ -940,7 +876,7 @@ document.getElementById("guide-close").addEventListener("click", () => guideDial
 document.getElementById("theme-button").addEventListener("click", () => themeDialog.showModal());
 document.getElementById("theme-close").addEventListener("click", () => themeDialog.close());
 
-for (const dialog of [unlockDialog, contactDialog, guideDialog, themeDialog, shareDialog, adminDialog]) closeOnBackdrop(dialog);
+for (const dialog of [unlockDialog, contactDialog, guideDialog, themeDialog, shareDialog, adminDialog, settingsDialog]) closeOnBackdrop(dialog);
 
 for (const button of document.querySelectorAll("[data-palette]")) {
   button.addEventListener("click", () => setTheme({ ...themeState, palette: button.dataset.palette }));
@@ -952,6 +888,8 @@ customColor.addEventListener("input", () => {
 
 render();
 renderLedger();
+migrateCloudStorage();
+startCloud();
 
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
@@ -961,4 +899,4 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-export { MACHINE_DEFAULTS, accessGate };
+export { MACHINE_DEFAULTS, api };

@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "cottoncal-machine-v1-";
-const CACHE_NAME = "cottoncal-machine-v1-20261001-1";
+const CACHE_NAME = "cottoncal-machine-v1-cloud-20261003-1";
 
 // PRECACHE_START
 const PRECACHE_URLS = [
@@ -9,7 +9,7 @@ const PRECACHE_URLS = [
   "./manifest.webmanifest",
   "./js/app.js",
   "./js/access-control.js",
-  "./js/admin-credential.js",
+  "./js/cloud-client.js",
   "./js/calculator.js",
   "./js/decimal.js",
   "./js/ledger-storage.js",
@@ -17,7 +17,6 @@ const PRECACHE_URLS = [
   "./js/sharing.js",
   "./js/storage.js",
   "./js/theme.js",
-  "./js/users.js",
   "./assets/cotton-boll.png",
   "./assets/author_wechat_qr.jpg",
   "./icons/icon-192.png",
@@ -42,6 +41,8 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
+  // Credentials and cloud configuration are always server-authoritative, including failures/offline.
+  if (new URL(event.request.url).pathname.startsWith("/v2/api/")) return;
   if (event.request.method !== "GET" || new URL(event.request.url).origin !== self.location.origin) return;
   event.respondWith(
     caches.match(event.request, { ignoreSearch: true }).then((cached) => cached || fetch(event.request)),

@@ -1,0 +1,13 @@
+# Deny by default: credentials, env files, databases, caches and tests stay out.
+**
+!Dockerfile
+!requirements.lock
+!machine_api.py
+!initialize.py
+!run_server.py
+# Only administrator-verified runtime wheels may enter the build context.
+!wheelhouse/
+!wheelhouse/*.whl
+# Public standard-library backup tool is supplied in the manager's isolated context.
+!manager-tools/
+!manager-tools/backup_sqlite.py

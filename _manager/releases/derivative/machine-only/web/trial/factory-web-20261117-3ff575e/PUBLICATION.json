@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "product": "Tool2 machine cotton factory web",
+  "version": "2.0.0-preview.2",
+  "acceptedOn": "2026-11-17",
+  "userAcceptance": "accepted",
+  "sourceCommit": "3ff575eb42d237859f27aa86969207d5f93ee71a",
+  "webTree": "1aaf8840443aa6befd9f371a3a9f204ff2f2ec0b",
+  "publicationBranch": "codex/derivative-machine-web",
+  "previousPublishedCommit": "202a9111a2d8d6f343717d531d33698d01a16ecd",
+  "packageSha256": "b0099429302dbb24d6d38e0dc342944dfc090553666f44f8b008f2202459a1f5",
+  "sourceFiles": 70,
+  "sourceMatchesAcceptedVersion": true,
+  "checks": {
+    "nodeCases": 28,
+    "apiCases": 24,
+    "actualBrowserGroups": 9
+  },
+  "evidenceNote": "Existing version-bound checks and direct user acceptance reused; no repeated runtime tests.",
+  "publicationScope": "Accepted web source and this public version summary only; no new internal administrator or server records",
+  "mainChange": false,
+  "androidChange": false,
+  "formalTags": [],
+  "binaryPackagesIncluded": false,
+  "productionDataIncluded": false,
+  "privateCredentialsIncluded": false,
+  "internalDeploymentMetadataIncluded": false
+}

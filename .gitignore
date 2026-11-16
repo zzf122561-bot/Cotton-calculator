@@ -22,5 +22,21 @@ _manager/releases/**/*.apk
 _manager/releases/**/*.aab
 _manager/releases/**/*.zip
 _manager/releases/**/screenshots/
+# Raw release evidence remains local; evidence/INDEX.json and release records stay tracked.
+_manager/releases/**/PRODUCTION_BROWSER_CHECK.json
+_manager/releases/**/evidence/feature/
+_manager/releases/**/evidence/manager/
 _manager/.staging/
 _manager/.worktrees/
+_manager/.private/
+_manager/**/__pycache__/
+_manager/evidence/**/raw/
+_manager/runtime/**/prepared/
+
+# Derivative server development caches and private runtime data.
+web/api/.venv/
+web/api/**/__pycache__/
+web/api/.pytest_cache/
+web/api/data/
+web/api/.env
+web/api/bootstrap.private.json
